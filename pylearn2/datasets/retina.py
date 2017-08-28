@@ -4,6 +4,7 @@ Retina-inspired preprocessing as described in
     In *AISTATS* 2009.
 """
 import numpy
+from theano.compat.six.moves import xrange
 from pylearn2.datasets.dense_design_matrix import DefaultViewConverter
 from pylearn2.space import Conv2DSpace
 
@@ -232,7 +233,7 @@ def restore_ring(output, coord, width, dense_input, start_idx):
                              coord + width,
                              coord +
                              width,
-                             96 - coord - width,
+                             img_w - coord - width,
                              width,
                              dense_input,
                              start_idx)

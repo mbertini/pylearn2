@@ -3,25 +3,23 @@
 A simple general csv dataset wrapper for pylearn2.
 Can do automatic one-hot encoding based on labels present in a file.
 """
-__authors__ = "Zygmunt Zając"
+__authors__ = "Zygmunt Zając, Marco De Nadai"
 __copyright__ = "Copyright 2013, Zygmunt Zając"
-__credits__ = ["Zygmunt Zając", "Nicholas Dronen"]
+__credits__ = ["Zygmunt Zając", "Nicholas Dronen", "Marco De Nadai"]
 __license__ = "3-clause BSD"
 __maintainer__ = "?"
 __email__ = "zygmunt@fastml.com"
 
-import csv
 import numpy as np
-import os
 
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
-from pylearn2.utils import serial
 from pylearn2.utils.string_utils import preprocess
 
 
 class CSVDataset(DenseDesignMatrix):
 
-    """A generic class for accessing CSV files
+    """
+    A generic class for accessing CSV files
     labels, if present, should be in the first column
     if there's no labels, set expect_labels to False
     if there's no header line in your file, set expect_headers to False
@@ -37,17 +35,13 @@ class CSVDataset(DenseDesignMatrix):
       target variable.  For classification, it is a vector; for regression, a
       matrix.
 
-    one_hot : bool
-      Whether the target variable (i.e. "label") should be encoded as a one-hot
-      vector.
-
     expect_labels : bool
       Whether the CSV file contains a target variable in the first column.
 
     expect_headers : bool
       Whether the CSV file contains column headers.
 
-    delimiter : bool
+    delimiter : str
       The CSV file's delimiter.
 
     start : int
@@ -61,27 +55,26 @@ class CSVDataset(DenseDesignMatrix):
 
     end_fraction : float
       The fraction of rows, starting at the end of the file, to load.
-    """
 
+    num_outputs : int, optional
+        number of target variables. defaults to 1
+
+    """
     def __init__(self,
                  path='train.csv',
                  task='classification',
-                 one_hot=False,
                  expect_labels=True,
                  expect_headers=True,
                  delimiter=',',
                  start=None,
                  stop=None,
                  start_fraction=None,
-                 end_fraction=None):
-        """
-        .. todo::
+                 end_fraction=None,
+                 num_outputs=1,
+                 **kwargs):
 
-            WRITEME
-        """
         self.path = path
         self.task = task
-        self.one_hot = one_hot
         self.expect_labels = expect_labels
         self.expect_headers = expect_headers
         self.delimiter = delimiter
@@ -89,6 +82,7 @@ class CSVDataset(DenseDesignMatrix):
         self.stop = stop
         self.start_fraction = start_fraction
         self.end_fraction = end_fraction
+        self.num_outputs = num_outputs
 
         self.view_converter = None
 
@@ -100,6 +94,7 @@ class CSVDataset(DenseDesignMatrix):
             if end_fraction is not None:
                 raise ValueError("Use start_fraction or end_fraction, "
                                  " not both.")
+
             if start_fraction <= 0:
                 raise ValueError("start_fraction should be > 0")
 
@@ -124,17 +119,25 @@ class CSVDataset(DenseDesignMatrix):
                                  " just not together.")
 
         # and go
-
         self.path = preprocess(self.path)
         X, y = self._load_data()
 
-        super(CSVDataset, self).__init__(X=X, y=y)
+        if self.task == 'regression':
+            super(CSVDataset, self).__init__(X=X, y=y, **kwargs)
+        else:
+            super(CSVDataset, self).__init__(X=X, y=y,
+                                             y_labels=np.max(y) + 1, **kwargs)
 
     def _load_data(self):
         """
-        .. todo::
+            Loads the data from a CSV file (ending with a '.csv' filename).
 
-            WRITEME
+            Returns
+                -------
+                X : object
+                    The features of the dataset.
+                y : object, optional
+                    The target variable of the model.
         """
         assert self.path.endswith('.csv')
 
@@ -146,6 +149,26 @@ class CSVDataset(DenseDesignMatrix):
             data = np.loadtxt(self.path, delimiter=self.delimiter)
 
         def take_subset(X, y):
+            """
+                Takes a subset of the dataset if the start_fraction,
+                stop_fraction or start/stop parameter of the class
+                is set.
+
+                Parameters
+                ----------
+                X : object
+                    The features of the dataset.
+                y : object, optional
+                    The target variable of the model.
+
+                Returns
+                -------
+                X : object
+                    The subset of the features of the dataset.
+                y : object, optional
+                    The subset of the target variable of the model.
+
+            """
             if self.start_fraction is not None:
                 n = X.shape[0]
                 subset_end = int(self.start_fraction * n)
@@ -164,24 +187,9 @@ class CSVDataset(DenseDesignMatrix):
             return X, y
 
         if self.expect_labels:
-            y = data[:, 0]
-            X = data[:, 1:]
-
-            # get unique labels and map them to one-hot positions
-            labels = np.unique(y)
-            labels = dict((x, i) for (i, x) in enumerate(labels))
-
-            if self.one_hot:
-                one_hot = np.zeros((y.shape[0], len(labels)), dtype='float32')
-                for i in xrange(y.shape[0]):
-                    label = y[i]
-                    label_position = labels[label]
-                    one_hot[i, label_position] = 1.
-                y = one_hot
-            else:
-                if self.task == 'regression':
-                    y = y.reshape((y.shape[0], 1))
-
+            y = data[:, 0:self.num_outputs]
+            X = data[:, self.num_outputs:]
+            y = y.reshape((y.shape[0], self.num_outputs))
         else:
             X = data
             y = None

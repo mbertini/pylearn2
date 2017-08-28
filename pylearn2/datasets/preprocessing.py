@@ -18,6 +18,7 @@ import time
 import warnings
 import os
 import numpy
+from theano.compat.six.moves import xrange
 import scipy
 try:
     from scipy import linalg
@@ -38,6 +39,7 @@ from pylearn2.utils import contains_nan
 
 
 log = logging.getLogger(__name__)
+
 
 convert_axes = Conv2DSpace.convert_numpy
 
@@ -550,8 +552,8 @@ class ExamplewiseAddScaleTransform(Block):
 
     def __init__(self, add=None, multiply=None, multiply_first=False,
                  input_space=None):
-        self._add = numpy.asarray(add)
-        self._multiply = numpy.asarray(multiply)
+        self.add = numpy.asarray(add)
+        self.multiply = numpy.asarray(multiply)
         # TODO: put the constant somewhere sensible.
         if multiply is not None:
             self._has_zeros = numpy.any(abs(multiply) < 1e-14)
@@ -566,8 +568,8 @@ class ExamplewiseAddScaleTransform(Block):
 
             WRITEME
         """
-        if self._multiply is not None:
-            batch *= self._multiply
+        if self.multiply is not None:
+            batch *= self.multiply
         return batch
 
     def _add(self, batch):
@@ -576,8 +578,8 @@ class ExamplewiseAddScaleTransform(Block):
 
             WRITEME
         """
-        if self._add is not None:
-            batch += self._add
+        if self.add is not None:
+            batch += self.add
         return batch
 
     def __call__(self, batch):
@@ -987,10 +989,14 @@ class PCA(object):
     Parameters
     ----------
     num_components : WRITEME
+    whiten : bool, optional
+        If False, whitening (or sphering) will not be performed (default).
+        If True, the preprocessed data will have zero mean and unit covariance.
     """
 
-    def __init__(self, num_components):
+    def __init__(self, num_components, whiten=False):
         self._num_components = num_components
+        self._whiten = whiten
         self._pca = None
         # TODO: Is storing these really necessary? This computation
         # can't really be merged since we're basically creating the
@@ -1008,8 +1014,9 @@ class PCA(object):
             if not can_fit:
                 raise ValueError("can_fit is False, but PCA preprocessor "
                                  "object has no fitted model stored")
-            from pylearn2 import pca
-            self._pca = pca.CovEigPCA(self._num_components)
+            from pylearn2.models import pca
+            self._pca = pca.CovEigPCA(num_components=self._num_components,
+                                      whiten=self._whiten)
             self._pca.train(dataset.get_design_matrix())
             self._transform_func = function([self._input],
                                             self._pca(self._input))
@@ -1027,7 +1034,10 @@ class PCA(object):
         proc_data = dataset.get_design_matrix()
         orig_var = orig_data.var(axis=0)
         proc_var = proc_data.var(axis=0)
-        assert proc_var[0] > orig_var.max()
+        # assert below fails when 'whiten' is True or sometimes on test
+        # or validation set when the preprocessor was fit on train set
+        if not self._whiten and can_fit:
+            assert proc_var[0] > orig_var.max()
 
         log.info('original variance: {0}'.format(orig_var.sum()))
         log.info('processed variance: {0}'.format(proc_var.sum()))
@@ -1170,8 +1180,14 @@ class ZCA(Preprocessor):
 
     Parameters
     ----------
-    n_components : WRITEME
-    n_drop_components : WRITEME
+    n_components : integer, optional
+        Keeps the n_components biggest eigenvalues and corresponding
+        eigenvectors of covariance matrix.
+    n_drop_components : integer, optional
+        Drops the n_drop_components smallest eigenvalues and corresponding
+        eigenvectors of covariance matrix. Will only drop components
+        when n_components is not set i.e. n_components has preference over
+        n_drop_components.
     filter_bias : float, optional
         TODO: verify that default of 0.1 is what was used in the
         Coates and Ng paper, add reference
@@ -1239,7 +1255,7 @@ class ZCA(Preprocessor):
             else:
                 matrix_c[...] = theano_func(matrix_a, matrix_b)
                 return matrix_c
-        except MemoryError, me:
+        except MemoryError:
             warnings.warn('Matrix multiplication too big to fit on GPU. '
                           'Re-doing with CPU. Consider using '
                           'THEANO_FLAGS="device=cpu" for your next '
@@ -1369,6 +1385,9 @@ class ZCA(Preprocessor):
 
         self.__dict__.update(state)
 
+        if not hasattr(self, "inv_P_"):
+            self.inv_P_ = None
+
     def fit(self, X):
         """
         Fits this `ZCA` instance to a design matrix `X`.
@@ -1408,13 +1427,19 @@ class ZCA(Preprocessor):
         t1 = time.time()
         eigs, eigv = linalg.eigh(covariance)
         t2 = time.time()
+
         log.info("eigh() took {0} seconds".format(t2 - t1))
         assert not contains_nan(eigs)
         assert not contains_nan(eigv)
         assert eigs.min() > 0
+
+        if self.n_components and self.n_drop_components:
+            raise ValueError('Either n_components or n_drop_components'
+                             'should be specified')
+
         if self.n_components:
-            eigs = eigs[:self.n_components]
-            eigv = eigv[:, :self.n_components]
+            eigs = eigs[-self.n_components:]
+            eigv = eigv[:, -self.n_components:]
 
         if self.n_drop_components:
             eigs = eigs[self.n_drop_components:]
@@ -1472,6 +1497,17 @@ class ZCA(Preprocessor):
             WRITEME
         """
         assert X.ndim == 2
+
+        if self.inv_P_ is None:
+            warnings.warn("inv_P_ was None. Computing "
+                          "inverse of P_ now. This will take "
+                          "some time. For efficiency, it is recommended that "
+                          "in the future you compute the inverse in ZCA.fit() "
+                          "instead, by passing it store_inverse=True.")
+            log.info('inverting...')
+            self.inv_P_ = numpy.linalg.inv(self.P_)
+            log.info('...done inverting')
+
         return self._gpu_matrix_dot(X, self.inv_P_) + self.mean_
 
 
@@ -1514,7 +1550,7 @@ class LeCunLCN(ExamplewisePreprocessor):
             elif isinstance(channels, int):
                 self._channels = [channels]
             else:
-                raise ValueError("channesl should be either a list or int")
+                raise ValueError("channels should be either a list or int")
 
     def transform(self, x):
         """

@@ -61,6 +61,8 @@ class VectorSpacesDataset(Dataset):
         if isinstance(data_specs[1], tuple):
             assert sorted(set(data_specs[1])) == sorted(data_specs[1])
         space, source = data_specs
+        if isinstance(data, list):
+            data = tuple(data)
         space.np_validate(data)
         assert len(set(elem.shape[0] for elem in list(data))) <= 1
         self.data = data
@@ -79,11 +81,8 @@ class VectorSpacesDataset(Dataset):
 
     @functools.wraps(Dataset.iterator)
     def iterator(self, mode=None, batch_size=None, num_batches=None,
-                 topo=None, targets=None, rng=None, data_specs=None,
+                 rng=None, data_specs=None,
                  return_tuple=False):
-
-        if topo is not None or targets is not None:
-            raise ValueError("You should use the new interface iterator")
 
         if mode is None:
             if hasattr(self, '_iter_subset_class'):

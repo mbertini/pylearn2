@@ -3,6 +3,7 @@ The CIFAR-100 dataset.
 """
 import numpy as np
 N = np
+from theano.compat.six.moves import xrange
 from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
                                                    DefaultViewConverter)
 from pylearn2.utils import serial
@@ -21,7 +22,6 @@ class CIFAR100(DenseDesignMatrix):
     axes : WRITEME
     start : WRITEME
     stop : WRITEME
-    one_hot : WRITEME
     """
 
     def __init__(self,
@@ -31,8 +31,7 @@ class CIFAR100(DenseDesignMatrix):
                  toronto_prepro=False,
                  axes=('b', 0, 1, 'c'),
                  start=None,
-                 stop=None,
-                 one_hot=False):
+                 stop=None):
         assert which_set in ['train', 'test']
 
         path = "${PYLEARN2_DATA_PATH}/cifar100/cifar-100-python/" + which_set
@@ -47,13 +46,6 @@ class CIFAR100(DenseDesignMatrix):
         y = np.asarray(obj['fine_labels'])
 
         self.center = center
-
-        self.one_hot = one_hot
-        if one_hot:
-            one_hot = np.zeros((y.shape[0], 100), dtype='float32')
-            for i in xrange(y.shape[0]):
-                one_hot[i, y[i]] = 1.
-            y = one_hot
 
         if center:
             X -= 127.5
@@ -88,7 +80,7 @@ class CIFAR100(DenseDesignMatrix):
         self.axes = axes
         view_converter = DefaultViewConverter((32, 32, 3), axes)
 
-        super(CIFAR100, self).__init__(X=X, y=y, view_converter=view_converter)
+        super(CIFAR100, self).__init__(X=X, y=y, y_labels=100, view_converter=view_converter)
 
         assert not N.any(N.isnan(self.X))
 
@@ -109,8 +101,6 @@ class CIFAR100(DenseDesignMatrix):
         # patch old pkl files
         if not hasattr(self, 'center'):
             self.center = False
-        if not hasattr(self, 'rescale'):
-            self.rescale = False
         if not hasattr(self, 'gcn'):
             self.gcn = False
 
@@ -123,12 +113,18 @@ class CIFAR100(DenseDesignMatrix):
         if not self.center:
             rval -= 127.5
 
-        if not self.rescale:
-            rval /= 127.5
-
+        rval /= 127.5
         rval = np.clip(rval, -1., 1.)
 
         return rval
+
+    def __setstate__(self, state):
+        super(CIFAR100, self).__setstate__(state)
+        # Patch old pkls
+        if self.y is not None and self.y.ndim == 1:
+            self.y = self.y.reshape((self.y.shape[0], 1))
+        if 'y_labels' not in state:
+            self.y_labels = 100
 
     def adjust_to_be_viewed_with(self, X, orig, per_example=False):
         """
@@ -146,8 +142,6 @@ class CIFAR100(DenseDesignMatrix):
         # patch old pkl files
         if not hasattr(self, 'center'):
             self.center = False
-        if not hasattr(self, 'rescale'):
-            self.rescale = False
         if not hasattr(self, 'gcn'):
             self.gcn = False
 
@@ -164,9 +158,7 @@ class CIFAR100(DenseDesignMatrix):
         if not self.center:
             rval -= 127.5
 
-        if not self.rescale:
-            rval /= 127.5
-
+        rval /= 127.5
         rval = np.clip(rval, -1., 1.)
 
         return rval
@@ -179,8 +171,6 @@ class CIFAR100(DenseDesignMatrix):
         """
         return CIFAR100(which_set='test',
                         center=self.center,
-                        rescale=self.rescale,
                         gcn=self.gcn,
-                        one_hot=self.one_hot,
                         toronto_prepro=self.toronto_prepro,
                         axes=self.axes)

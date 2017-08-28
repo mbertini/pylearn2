@@ -11,7 +11,6 @@ __email__ = "pylearn-dev@googlegroups"
 
 import functools
 import numpy as np
-import warnings
 
 
 class TerminationCriterion(object):
@@ -35,15 +34,8 @@ class TerminationCriterion(object):
             True or False as described above
         """
 
-        raise NotImplementedError(str(type(self)) + " does not implement " +
-                                  "continue_learning.")
-
-    def __call__(self, model):
-        """Support for a deprecated interface."""
-        warnings.warn("TerminationCriterion.__call__ is deprecated, use " +
-                      "continue_learning. __call__ will be removed on or " +
-                      "after July 31, 2014.", stacklevel=2)
-        return self.continue_learning(model)
+        raise NotImplementedError(
+            str(type(self)) + " does not implement " + "continue_learning.")
 
 
 class MonitorBased(TerminationCriterion):
@@ -64,6 +56,7 @@ class MonitorBased(TerminationCriterion):
         has only one channel, this channel will be used; otherwise, an
         error will be raised.
     """
+
     def __init__(self, prop_decrease=.01, N=5, channel_name=None):
         self._channel_name = channel_name
         self.prop_decrease = prop_decrease
@@ -214,8 +207,7 @@ class EpochCounter(TerminationCriterion):
     Parameters
     ----------
     max_epochs : int
-        Number of epochs (i.e. calls to this object's `__call__`
-        method) after which this termination criterion should
+        Number of epochs after which this termination criterion should
         return `False`.
     new_epochs : bool, optional
         If True, epoch counter starts from 0. Otherwise it
@@ -228,18 +220,17 @@ class EpochCounter(TerminationCriterion):
 
     def initialize(self, model):
         if self._new_epochs:
-            self._epochs_done = 0
+            self._epochs_offset = model.monitor.get_epochs_seen()
         else:
-            # epochs_seen = 1 on first continue_learning() call
-            self._epochs_done = model.monitor.get_epochs_seen() - 1
+            self._epochs_offset = 0
 
     @functools.wraps(TerminationCriterion.continue_learning)
     def continue_learning(self, model):
-        if not hasattr(self, "_epochs_done"):
+        if not hasattr(self, "_epochs_offset"):
             self.initialize(model)
 
-        self._epochs_done += 1
-        return self._epochs_done < self._max_epochs
+        current_epoch = model.monitor.get_epochs_seen() - self._epochs_offset
+        return current_epoch < self._max_epochs
 
 
 class And(TerminationCriterion):

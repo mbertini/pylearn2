@@ -8,10 +8,11 @@ from pylearn2.models import mlp
 from pylearn2.models.mlp import Layer
 from pylearn2.space import IndexSpace
 from pylearn2.space import VectorSpace
+from pylearn2.space import CompositeSpace
 from pylearn2.utils import sharedX
 from pylearn2.utils import wraps
 from pylearn2.sandbox.nlp.linear.matrixmul import MatrixMul
-from theano.compat.python2x import OrderedDict
+from pylearn2.compat import OrderedDict
 
 
 class Softmax(mlp.Softmax):
@@ -92,8 +93,8 @@ class ProjectionLayer(Layer):
             self._irange = irange
             self._istdev = istdev
 
-    @wraps(Layer.get_monitoring_channels)
-    def get_monitoring_channels(self):
+    @wraps(Layer.get_layer_monitoring_channels)
+    def get_layer_monitoring_channels(self, *args, **kwargs):
 
         W, = self.transformer.get_params()
 
@@ -111,21 +112,41 @@ class ProjectionLayer(Layer):
                             ('col_norms_mean', col_norms.mean()),
                             ('col_norms_max',  col_norms.max()), ])
 
+    def _check_input_space_and_get_max_labels(self, space):
+        if isinstance(space, IndexSpace):
+            return space.max_labels
+        if isinstance(space, CompositeSpace):
+            ml = []
+            for c in space.components:
+                ml.append(self._check_input_space_and_get_max_labels(c))
+            # check that all of them are equal
+            if len(set(ml)) != 1:
+                raise ValueError("Composite space is empty or containing "
+                                 "incompatible index spaces")
+            return ml[0]
+        raise ValueError("ProjectionLayer needs an IndexSpace or a "
+                         "CompositeSpace of them as input")
+
+    def _build_output_space(self, space):
+        if isinstance(space, IndexSpace):
+            return VectorSpace(self.dim * space.dim)
+        if isinstance(space, CompositeSpace):
+            return CompositeSpace([self._build_output_space(c)
+                                   for c in space.components])
+        assert False
+
     @wraps(Layer.set_input_space)
     def set_input_space(self, space):
-        if isinstance(space, IndexSpace):
-            self.input_dim = space.dim
-            self.input_space = space
-        else:
-            raise ValueError("ProjectionLayer needs an IndexSpace as input")
-        self.output_space = VectorSpace(self.dim * self.input_dim)
+        max_labels = self._check_input_space_and_get_max_labels(space)
+        self.input_space = space
+        self.output_space = self._build_output_space(space)
         rng = self.mlp.rng
         if self._irange is not None:
             W = rng.uniform(-self._irange,
                             self._irange,
-                            (space.max_labels, self.dim))
+                            (max_labels, self.dim))
         else:
-            W = rng.randn(space.max_labels, self.dim) * self._istdev
+            W = rng.randn(max_labels, self.dim) * self._istdev
 
         W = sharedX(W)
         W.name = self.layer_name + '_W'
@@ -135,10 +156,14 @@ class ProjectionLayer(Layer):
         W, = self.transformer.get_params()
         assert W.name is not None
 
+    def _fprop_recursive(self, state_below):
+        if isinstance(state_below, tuple):
+            return tuple(self._fprop_recursive(s) for s in state_below)
+        return self.transformer.project(state_below)
+
     @wraps(Layer.fprop)
     def fprop(self, state_below):
-        z = self.transformer.project(state_below)
-        return z
+        return self._fprop_recursive(state_below)
 
     @wraps(Layer.get_params)
     def get_params(self):
@@ -146,3 +171,21 @@ class ProjectionLayer(Layer):
         assert W.name is not None
         params = [W]
         return params
+
+    @wraps(Layer.get_weight_decay)
+    def get_weight_decay(self, coeff):
+
+        if isinstance(coeff, str):
+            coeff = float(coeff)
+        assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
+        W, = self.transformer.get_params()
+        return coeff * T.sqr(W).sum()
+
+    @wraps(Layer.get_l1_weight_decay)
+    def get_l1_weight_decay(self, coeff):
+
+        if isinstance(coeff, str):
+            coeff = float(coeff)
+        assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
+        W, = self.transformer.get_params()
+        return coeff * abs(W).sum()

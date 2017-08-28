@@ -28,6 +28,9 @@ import platform
 import socket
 import subprocess
 import sys
+import warnings
+
+from theano.compat import six
 
 logger = logging.getLogger(__name__)
 
@@ -98,22 +101,20 @@ class LibVersion(object):
                     if v != 'unknown':
                         self.versions[repo] = v
                         continue
-                self.versions[repo] = self._get_git_version(self._get_module_parent_path(sys.modules[repo]))
+                self.versions[repo] = self._get_git_version(
+                    self._get_module_parent_path(sys.modules[repo]))
             except ImportError:
                 self.versions[repo] = None
 
         known = copy.copy(self.versions)
         # Put together all modules with unknown versions.
-        unknown = []
-        for k, v in known.items():
-            if v is None:
-                unknown.append(k)
-                del known[k]
+        unknown = [k for k, w in known.items() if not w]
+        known = dict((k, w) for k, w in known.items() if w)
 
         # Print versions.
-        self.str_versions = ' | '.join(['%s:%s' % (k, v)
-                               for k, v in sorted(known.iteritems())] +
-                               ['%s:?' % ','.join(sorted(unknown))])
+        self.str_versions = ' | '.join(
+            ['%s:%s' % (k, w) for k, w in sorted(six.iteritems(known))] +
+            ['%s:?' % ','.join(sorted(unknown))])
 
     def __str__(self):
         """
@@ -159,7 +160,10 @@ class LibVersion(object):
         except Exception:
             pass
         finally:
-            os.chdir(cwd_backup)
+            try:
+                os.chdir(cwd_backup)
+            except Exception:
+                warnings.warn("Could not chdir back to " + cwd_backup)
 
     def _get_hg_version(self, root):
         """Same as `get_git_version` but for a Mercurial repository."""

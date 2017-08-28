@@ -6,6 +6,7 @@ __license__ = "3-clause BSD"
 __maintainer__ = "LISA Lab"
 __email__ = "pylearn-dev@googlegroups"
 import numpy as N
+from theano.compat.six.moves import xrange
 from pylearn2.datasets import cache, dense_design_matrix
 from pylearn2.utils.string_utils import preprocess
 
@@ -49,7 +50,6 @@ class TL_Challenge(dense_design_matrix.DenseDesignMatrix):
         assert X.min() == 0
 
         X = N.cast['float32'](X)
-        y = None
 
         if center:
             X -= 127.5
@@ -62,8 +62,7 @@ class TL_Challenge(dense_design_matrix.DenseDesignMatrix):
 
         X = view_converter.topo_view_to_design_mat(X)
 
-        super(TL_Challenge, self).__init__(X=X,
-                                           y=y,
+        super(TL_Challenge, self).__init__(X=X, y=None,
                                            view_converter=view_converter)
 
         assert not N.any(N.isnan(self.X))

@@ -1,8 +1,12 @@
-"""
-.. todo::
+"""TrainExtensions for keeping track of and saving the best
+   parameters during training. TODO: fill out properly."""
+__authors__ = "XXX"
+__copyright__ = "Copyright 2010-2012, Universite de Montreal"
+__credits__ = ["XXX", "YYY"]
+__license__ = "3-clause BSD"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
-    WRITEME
-"""
 from copy import deepcopy
 import logging
 import os.path
@@ -13,6 +17,8 @@ from pylearn2.train_extensions import TrainExtension
 import theano
 import theano.tensor as T
 from pylearn2.utils import serial
+from pylearn2.utils.timing import log_timing
+
 
 log = logging.getLogger(__name__)
 
@@ -44,10 +50,10 @@ class KeepBestParams(TrainExtension):
         if cost.supervised:
             self.supervised = True
             self.cost_function = theano.function(inputs=[self.minibatch,
-                                                          self.target],
-                                                  outputs=cost(model,
-                                                               self.minibatch,
-                                                               self.target))
+                                                         self.target],
+                                                 outputs=cost(model,
+                                                              self.minibatch,
+                                                              self.target))
         else:
             self.supervised = False
             self.cost_function = theano.function(inputs=[self.minibatch],
@@ -107,6 +113,10 @@ class MonitorBasedSaveBest(TrainExtension):
     store_best_model : bool, optional
         Whether to store the best model in memory. If False (the default),
         save_path must be defined.
+    start_epoch : int, optional
+        After the specified epoch, the model will start to be saved. Setting
+        this value to a reasonable value prevents the library from saving the
+        model too many times at the beginning of training.
     higher_is_better : bool, optional
         Whether a higher value of channel_name indicates a better model.
     tag_key : str, optional
@@ -114,13 +124,14 @@ class MonitorBasedSaveBest(TrainExtension):
         `model.tag`. If `None`, use the class name (default).
     """
     def __init__(self, channel_name, save_path=None, store_best_model=False,
-                 higher_is_better=False, tag_key=None):
+                 start_epoch=0, higher_is_better=False, tag_key=None):
         self.channel_name = channel_name
         assert save_path is not None or store_best_model, (
             "Either save_path must be defined or store_best_model must be " +
             "True. (Or both.)")
         self.save_path = save_path
         self.store_best_model = store_best_model
+        self.start_epoch = start_epoch
         self.higher_is_better = higher_is_better
         if higher_is_better:
             self.coeff = -1.
@@ -185,14 +196,16 @@ class MonitorBasedSaveBest(TrainExtension):
         val_record = channel.val_record
         new_cost = val_record[-1]
 
-        if self.coeff * new_cost < self.coeff * self.best_cost:
+        if self.coeff * new_cost < self.coeff * self.best_cost and \
+           monitor._epochs_seen >= self.start_epoch:
             self.best_cost = new_cost
             # Update the tag of the model object before saving it.
             self._update_tag(model)
             if self.store_best_model:
                 self.best_model = deepcopy(model)
             if self.save_path is not None:
-                serial.save(self.save_path, model, on_overwrite='backup')
+                with log_timing(log, 'Saving to ' + self.save_path):
+                    serial.save(self.save_path, model, on_overwrite='backup')
 
     def _update_tag(self, model):
         """

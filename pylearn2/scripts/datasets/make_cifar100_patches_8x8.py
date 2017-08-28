@@ -1,10 +1,12 @@
 """
-This script makes a dataset of two million approximately whitened patches, extracted at random uniformly
-from the CIFAR-100 train dataset.
+This script makes a dataset of two million approximately whitened patches,
+extracted at random uniformly from the CIFAR-100 train dataset.
 
-This script is intended to reproduce the preprocessing used by Adam Coates et. al. in their work from
-the first half of 2011 on the CIFAR-10 and STL-10 datasets.
+This script is intended to reproduce the preprocessing used by Adam Coates
+et. al. in their work from the first half of 2011 on the CIFAR-10 and
+STL-10 datasets.
 """
+from __future__ import print_function
 
 from pylearn2.utils import serial
 from pylearn2.datasets import preprocessing
@@ -13,13 +15,13 @@ from pylearn2.utils import string
 
 data_dir = string.preprocess('${PYLEARN2_DATA_PATH}')
 
-print 'Loading CIFAR-100 train dataset...'
-data = CIFAR100(which_set = 'train')
+print('Loading CIFAR-100 train dataset...')
+data = CIFAR100(which_set='train')
 
-print "Preparing output directory..."
+print("Preparing output directory...")
 patch_dir = data_dir + '/cifar100/cifar100_patches_8x8'
-serial.mkdir( patch_dir )
-README = open(patch_dir + '/README','w')
+serial.mkdir(patch_dir)
+README = open(patch_dir + '/README', 'w')
 
 README.write("""
 The .pkl files in this directory may be opened in python using
@@ -45,15 +47,17 @@ to function correctly.
 
 README.close()
 
-print "Preprocessing the data..."
+print("Preprocessing the data...")
 pipeline = preprocessing.Pipeline()
-pipeline.items.append(preprocessing.ExtractPatches(patch_shape=(8,8),num_patches=2*1000*1000))
-pipeline.items.append(preprocessing.GlobalContrastNormalization(sqrt_bias=10., use_std=True))
+pipeline.items.append(
+    preprocessing.ExtractPatches(patch_shape=(8, 8), num_patches=2*1000*1000))
+pipeline.items.append(
+    preprocessing.GlobalContrastNormalization(sqrt_bias=10., use_std=True))
 pipeline.items.append(preprocessing.ZCA())
-data.apply_preprocessor(preprocessor = pipeline, can_fit = True)
+data.apply_preprocessor(preprocessor=pipeline, can_fit=True)
 
 data.use_design_loc(patch_dir + '/data.npy')
 
-serial.save(patch_dir + '/data.pkl',data)
+serial.save(patch_dir + '/data.pkl', data)
 
-serial.save(patch_dir + '/preprocessor.pkl',pipeline)
+serial.save(patch_dir + '/preprocessor.pkl', pipeline)

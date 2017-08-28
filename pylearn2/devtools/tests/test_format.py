@@ -2,6 +2,8 @@
 Unit tests for format checking
 """
 
+from __future__ import print_function
+
 from nose.plugins.skip import SkipTest
 
 import os
@@ -16,7 +18,6 @@ whitelist_pep8 = [
     "distributions/mnd.py",
     "models/sparse_autoencoder.py",
     "models/tests/test_dbm.py",
-    "models/tests/test_autoencoder.py",
     "models/tests/test_s3c_inference.py",
     "models/tests/test_mnd.py",
     "models/tests/test_s3c_misc.py",
@@ -28,7 +29,6 @@ whitelist_pep8 = [
     "models/local_coordinate_coding.py",
     "models/mnd.py",
     "models/s3c.py",
-    "models/autoencoder.py",
     "tests/test_monitor.py",
     "kmeans.py",
     "packaged_dependencies/theano_linear/conv2d.py",
@@ -52,7 +52,6 @@ whitelist_pep8 = [
     "expr/sampling.py",
     "expr/information_theory.py",
     "expr/basic.py",
-    "testing/cost.py",
     "gui/graph_2D.py",
     "sandbox/cuda_convnet/weight_acts.py",
     "sandbox/cuda_convnet/filter_acts.py",
@@ -82,49 +81,28 @@ whitelist_pep8 = [
     "utils/utlc.py",
     "utils/tests/test_serial.py",
     "utils/common_strings.py",
-    "utils/serial.py",
     "utils/mem.py",
     "dataset_get/dataset-get.py",
     "dataset_get/helper-scripts/make-archive.py",
     "dataset_get/dataset_resolver.py",
-    "monitor.py",
-    "optimization/batch_gradient_descent.py",
     "optimization/minres.py",
-    "costs/ebm_estimation.py",
-    "costs/gsn.py",
-    "costs/mlp/missing_target_cost.py",
-    "costs/autoencoder.py",
     "linear/conv2d.py",
     "linear/local_c01b.py",
     "linear/linear_transform.py",
     "linear/conv2d_c01b.py",
     "energy_functions/rbm_energy.py",
-    "scripts/lcc_tangents/make_dataset.py",
     "scripts/pkl_inspector.py",
     "scripts/show_binocular_greyscale_examples.py",
     "scripts/jobman/tester.py",
-    "scripts/dbm/show_samples.py",
-    "scripts/dbm/show_reconstructions.py",
     "scripts/dbm/dbm_metrics.py",
-    "scripts/dbm/top_filters.py",
     "scripts/papers/maxout/svhn_preprocessing.py",
     "scripts/papers/jia_huang_wkshp_11/fit_final_model.py",
     "scripts/papers/jia_huang_wkshp_11/evaluate.py",
     "scripts/papers/jia_huang_wkshp_11/extract_features.py",
     "scripts/papers/jia_huang_wkshp_11/assemble.py",
     "scripts/gpu_pkl_to_cpu_pkl.py",
-    "scripts/datasets/make_cifar10_whitened.py",
-    "scripts/datasets/make_cifar100_patches_8x8.py",
-    "scripts/datasets/make_cifar100_patches.py",
-    "scripts/datasets/make_cifar10_gcn_whitened.py",
-    "scripts/datasets/make_cifar100_whitened.py",
-    "scripts/datasets/make_stl10_patches_8x8.py",
-    "scripts/datasets/make_cifar100_gcn_whitened.py",
-    "scripts/datasets/make_stl10_whitened.py",
-    "scripts/datasets/make_stl10_patches.py",
     "scripts/gsn_example.py",
     "scripts/tutorials/deep_trainer/run_deep_trainer.py",
-    "scripts/tutorials/grbm_smd/make_dataset.py",
     "scripts/tutorials/grbm_smd/test_grbm_smd.py",
     "scripts/icml_2013_wrepl/multimodal/"
     "extract_layer_2_kmeans_features.py",
@@ -137,31 +115,23 @@ whitelist_pep8 = [
     "scripts/icml_2013_wrepl/black_box/make_submission.py",
     "scripts/diff_monitor.py",
     "corruption.py",
-    "devtools/nan_guard.py",
     "sandbox/lisa_rl/bandit/gaussian_bandit.py",
-    "utils/iteration.py",
     "utils/track_version.py",
     "scripts/get_version.py",
-    "blocks.py",
     "training_algorithms/tests/test_bgd.py",
     "training_algorithms/tests/test_default.py",
-    "training_algorithms/bgd.py",
     "training_algorithms/default.py",
     "training_algorithms/training_algorithm.py",
-    "training_algorithms/sgd.py",
     "distributions/tests/test_mnd.py",
     "distributions/parzen.py",
     "distributions/uniform_hypersphere.py",
     "models/setup.py",
     "models/independent_multiclass_logistic.py",
     "models/softmax_regression.py",
-    "models/tests/test_svm.py",
     "models/tests/test_reflection_clip.py",
-    "models/tests/test_mlp.py",
     "models/tests/test_maxout.py",
     "models/tests/test_convelemwise_sigm.py",
     "models/dbm/sampling_procedure.py",
-    "models/svm.py",
     "models/rbm.py",
     "models/pca.py",
     "tests/test_train.py",
@@ -172,7 +142,6 @@ whitelist_pep8 = [
     "packaged_dependencies/theano_linear/__init__.py",
     "packaged_dependencies/theano_linear/test_linear.py",
     "expr/tests/test_nnet.py",
-    "expr/nnet.py",
     "expr/image.py",
     "expr/coding.py",
     "expr/normalize.py",
@@ -190,7 +159,6 @@ whitelist_pep8 = [
     "sandbox/cuda_convnet/tests/test_common.py",
     "sandbox/cuda_convnet/shared_code.py",
     "sandbox/cuda_convnet/code_templates.py",
-    "sandbox/cuda_convnet/debug.py",
     "sandbox/lisa_rl/bandit/agent.py",
     "sandbox/lisa_rl/bandit/algorithm.py",
     "sandbox/lisa_rl/bandit/environment.py",
@@ -198,12 +166,10 @@ whitelist_pep8 = [
     "datasets/avicenna.py",
     "datasets/iris.py",
     "datasets/adult.py",
-    "datasets/zca_dataset.py",
     "datasets/npy_npz.py",
     "datasets/control.py",
     "datasets/cifar100.py",
     "datasets/transformer_dataset.py",
-    "datasets/dataset.py",
     "termination_criteria/__init__.py",
     "__init__.py",
     "utils/logger.py",
@@ -211,9 +177,6 @@ whitelist_pep8 = [
     "utils/tests/test_data_specs.py",
     "utils/tests/test_bit_strings.py",
     "utils/tests/test_iteration.py",
-    "utils/tests/test_string_utils.py",
-    "utils/image.py",
-    "utils/string_utils.py",
     "utils/theano_graph.py",
     "utils/__init__.py",
     "utils/datasets.py",
@@ -235,9 +198,6 @@ whitelist_pep8 = [
     "optimization/feature_sign.py",
     "optimization/test_linear_cg.py",
     "optimization/linesearch.py",
-    "costs/mlp/__init__.py",
-    "costs/cost.py",
-    "costs/dbm.py",
     "linear/tests/test_conv2d.py",
     "linear/tests/test_conv2d_c01b.py",
     "linear/matrixmul.py",
@@ -259,21 +219,17 @@ whitelist_pep8 = [
     "scripts/datasets/make_mnistplus.py",
     "scripts/mlp/predict_csv.py",
     "scripts/find_gpu_fields.py",
-    "scripts/tutorials/convolutional_network/tests/test_convnet.py",
     "scripts/tutorials/deep_trainer/test_deep_trainer.py",
     "scripts/icml_2013_wrepl/multimodal/make_wordlist.py",
     "base.py",
     "devtools/tests/test_via_pyflakes.py",
     "devtools/tests/test_shebangs.py",
     "devtools/tests/pep8/pep8.py",
-    "devtools/tests/test_record.py",
     "devtools/tests/docscrape.py",
     "devtools/run_pyflakes.py",
     "devtools/record.py",
     "train_extensions/tests/test_window_flip.py",
     "train_extensions/__init__.py",
-    "train_extensions/window_flip.py",
-    "train_extensions/best_params.py"
 ]
 
 whitelist_docstrings = [
@@ -299,7 +255,6 @@ whitelist_docstrings = [
     'models/independent_multiclass_logistic.py',
     'models/softmax_regression.py',
     'models/sparse_autoencoder.py',
-    'models/tests/test_svm.py',
     'models/tests/test_reflection_clip.py',
     'models/tests/test_dbm.py',
     'models/tests/test_gsn.py',
@@ -323,7 +278,6 @@ whitelist_docstrings = [
     'models/maxout.py',
     'models/s3c.py',
     'models/mnd.py',
-    'models/svm.py',
     'models/rbm.py',
     'models/autoencoder.py',
     'tests/test_dbm_metrics.py',
@@ -346,7 +300,6 @@ whitelist_docstrings = [
     'expr/tests/test_normalize.py',
     'expr/tests/test_stochastic_pool.py',
     'expr/preprocessing.py',
-    'expr/nnet.py',
     'expr/image.py',
     'expr/coding.py',
     'expr/__init__.py',
@@ -361,8 +314,6 @@ whitelist_docstrings = [
     'testing/prereqs.py',
     'testing/__init__.py',
     'testing/datasets.py',
-    'testing/cost.py',
-    'gui/graph_2D.py',
     'gui/get_weights_report.py',
     'gui/__init__.py',
     'gui/patch_viewer.py',
@@ -430,7 +381,6 @@ whitelist_docstrings = [
     'datasets/adult.py',
     'datasets/tfd.py',
     'datasets/icml07.py',
-    'datasets/zca_dataset.py',
     'datasets/filetensor.py',
     'datasets/npy_npz.py',
     'datasets/hepatitis.py',
@@ -446,7 +396,6 @@ whitelist_docstrings = [
     'datasets/transformer_dataset.py',
     'datasets/norb_small.py',
     'datasets/retina.py',
-    'datasets/dataset.py',
     'datasets/ocr.py',
     'datasets/stl10.py',
     'datasets/matlab_dataset.py',
@@ -461,33 +410,26 @@ whitelist_docstrings = [
     'utils/compile.py',
     'utils/logger.py',
     'utils/general.py',
-    'utils/one_hot.py',
     'utils/testing.py',
     'utils/tests/test_mnist_ubyte.py',
     'utils/tests/test_data_specs.py',
     'utils/tests/test_video.py',
     'utils/tests/test_bit_strings.py',
-    'utils/tests/test_one_hot.py',
     'utils/tests/test_rng.py',
     'utils/tests/test_pooling.py',
     'utils/tests/test_iteration.py',
-    'utils/tests/test_string_utils.py',
     'utils/tests/test_insert_along_axis.py',
     'utils/tests/test_utlc.py',
     'utils/tests/test_compile.py',
     'utils/tests/test_key_aware.py',
     'utils/key_aware.py',
-    'utils/image.py',
     'utils/video.py',
-    'utils/string_utils.py',
     'utils/bit_strings.py',
     'utils/iteration.py',
     'utils/pooling.py',
     'utils/theano_graph.py',
-    'utils/exc.py',
     'utils/common_strings.py',
     'utils/datasets.py',
-    'utils/serial.py',
     'utils/data_specs.py',
     'utils/shell.py',
     'utils/rng.py',
@@ -518,13 +460,6 @@ whitelist_docstrings = [
     'optimization/test_feature_sign.py',
     'optimization/feature_sign.py',
     'optimization/linesearch.py',
-    'costs/tests/test_lp_penalty_cost.py',
-    'costs/gsn.py',
-    'costs/__init__.py',
-    'costs/mlp/__init__.py',
-    'costs/mlp/missing_target_cost.py',
-    'costs/dbm.py',
-    'costs/autoencoder.py',
     'linear/conv2d.py',
     'linear/tests/test_matrixmul.py',
     'linear/local_c01b.py',
@@ -568,7 +503,6 @@ whitelist_docstrings = [
     'scripts/tutorials/tests/test_dbm.py',
     'scripts/tutorials/tests/test_mlp_nested.py',
     'scripts/tutorials/multilayer_perceptron/tests/test_mlp.py',
-    'scripts/tutorials/convolutional_network/tests/test_convnet.py',
     'scripts/tutorials/softmax_regression/tests/test_softmaxreg.py',
     'scripts/tutorials/deep_trainer/__init__.py',
     'scripts/tutorials/deep_trainer/run_deep_trainer.py',
@@ -595,39 +529,34 @@ whitelist_docstrings = [
     'base.py',
     'devtools/tests/test_via_pyflakes.py',
     'devtools/tests/test_shebangs.py',
-    'devtools/tests/test_record.py',
     'devtools/tests/__init__.py',
     'devtools/tests/docscrape.py',
     'devtools/run_pyflakes.py',
-    'devtools/nan_guard.py',
     'devtools/__init__.py',
     'devtools/record.py',
-    'train_extensions/best_params.py',
     'corruption.py',
     'datasets/tests/test_tl_challenge.py',
     'datasets/tests/test_tfd.py',
     'datasets/tests/test_npy_npz.py',
     'linear/tests/test_conv2d.py',
     'devtools/tests/pep8/pep8.py',
-    'devtools/tests/pep8/__init__.py']
-
-# add files which have long execution time to whitelist_docstrings
-whitelist_docstrings.extend([
-    'sandbox/cuda_convnet/debug.py',
-    'energy_functions/tests/test_rbm_energy.py',
+    'devtools/tests/pep8/__init__.py',
+    'scripts/lcc_tangents/make_dataset.py',
     'scripts/icml_2013_wrepl/multimodal/make_wordlist.py',
-    'scripts/make_weights_image.py', 'costs/ebm_estimation.py',
-    'classifier.py', 'scripts/lcc_tangents/make_dataset.py',
-    'scripts/datasets/make_cifar10_whitened.py',
-    'scripts/datasets/make_cifar100_patches.py',
-    'scripts/datasets/make_cifar10_gcn_whitened.py',
-    'scripts/datasets/make_stl10_patches_8x8.py',
-    'scripts/datasets/make_cifar100_gcn_whitened.py',
     'scripts/datasets/make_stl10_whitened.py',
-    'scripts/datasets/make_stl10_patches.py'])
+    'scripts/datasets/make_stl10_patches_8x8.py',
+    'scripts/datasets/make_stl10_patches.py',
+    'scripts/datasets/make_cifar10_whitened.py',
+    'scripts/datasets/make_cifar10_gcn_whitened.py',
+    'scripts/datasets/make_cifar100_patches.py',
+    'scripts/datasets/make_cifar100_gcn_whitened.py',
+    'scripts/datasets/make_svhn_pytables.py',
+    'energy_functions/tests/test_rbm_energy.py',
+]
 
 # add files which fail to run to whitelist_docstrings
 whitelist_docstrings.extend([
+    'sandbox/rnn/models/mlp_hook.py',
     'training_algorithms/tests/test_learning_rule.py',
     'models/pca.py',
     'datasets/tests/test_hdf5.py',
@@ -659,10 +588,6 @@ whitelist_docstrings.extend([
     'optimization/test_linesearch.py',
     'optimization/test_minres.py',
     'optimization/test_linear_cg.py',
-    'scripts/dbm/show_samples.py',
-    'scripts/dbm/show_reconstructions.py',
-    'scripts/dbm/top_filters.py',
-    'scripts/dbm/show_negative_chains.py',
     'scripts/papers/maxout/svhn_preprocessing.py',
     'scripts/papers/maxout/compute_test_err.py',
     'scripts/papers/jia_huang_wkshp_11/fit_final_model.py',
@@ -676,7 +601,8 @@ whitelist_docstrings.extend([
     'scripts/icml_2013_wrepl/black_box/learn_zca.py',
     'train_extensions/tests/test_window_flip.py',
     'train_extensions/window_flip.py',
-    'linear/tests/test_local_c01b.py'])
+    'linear/tests/test_local_c01b.py',
+    'sandbox/cuda_convnet/debug.py', ])
 
 
 def test_format_pep8():
@@ -714,12 +640,12 @@ def print_files_information_pep8():
         else:
             if rel_path in whitelist_pep8:
                 non_infracting_files.append(path)
-    print "Files that must be corrected or added to whitelist:"
+    print("Files that must be corrected or added to whitelist:")
     for file in infracting_files:
-        print file
-    print "Files that can be removed from whitelist:"
+        print(file)
+    print("Files that can be removed from whitelist:")
     for file in non_infracting_files:
-        print file
+        print(file)
 
 
 def test_format_docstrings():
@@ -729,7 +655,7 @@ def test_format_docstrings():
 
     try:
         verify_format_docstrings()
-    except SkipTest, e:
+    except SkipTest as e:
         import traceback
         traceback.print_exc(e)
         raise AssertionError(
@@ -751,7 +677,7 @@ def verify_format_docstrings():
             continue
         try:
             format_infractions.extend(docstring_errors(path))
-        except StandardError as e:
+        except Exception as e:
             format_infractions.append(["%s failed to run so format cannot "
                                        "be checked. Error message:\n %s" %
                                        (rel_path, e)])

@@ -3,12 +3,14 @@ import numpy as np
 from theano.compat.six.moves import zip as izip
 
 from pylearn2.costs.cost import SumOfCosts
+from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.testing.cost import SumOfOneHalfParamsSquared
 from pylearn2.testing.cost import SumOfParams
 from pylearn2.testing.datasets import ArangeDataset
 from pylearn2.training_algorithms.sgd import SGD
 from pylearn2.training_algorithms.learning_rule import Momentum
 from pylearn2.training_algorithms.learning_rule import AdaDelta
+from pylearn2.training_algorithms.learning_rule import AdaGrad
 from pylearn2.training_algorithms.learning_rule import RMSProp
 
 from test_sgd import DummyCost, DummyModel
@@ -142,7 +144,6 @@ def test_adadelta():
         state[param]['dx2'] = np.zeros(param_shape)
 
     def adadelta_manual(model, state):
-        inc = []
         rval = []
         for scale, param in izip(scales, model.get_params()):
             pstate = state[param]
@@ -167,6 +168,117 @@ def test_adadelta():
     assert all(np.allclose(manual_param, sgd_param.get_value())
                for manual_param, sgd_param in
                izip(manual, model.get_params()))
+
+
+def prepare_adagrad_test(dataset_type='arange', model_type='random'):
+    """
+    Factor out common code for AdaGrad tests.
+    Parameters
+    ----------
+    dataset_type : string, optional
+        Can use either `arange` to use an ArangeDataset instance or
+        `zeros` to create an all-zeros DenseDesignMatrix.
+    model_type : string, optional
+        How to initialize the model; `random` will initialize parameters
+        to random values, `zeros` to zero.
+    """
+    # We include a cost other than SumOfParams so that data is actually
+    # queried from the training set, and the expected number of updates
+    # are applied.
+    cost = SumOfCosts([SumOfOneHalfParamsSquared(), (0., DummyCost())])
+    model = DummyModel(shapes, lr_scalers=scales, init_type=model_type)
+    if dataset_type == 'arange':
+        dataset = ArangeDataset(1)
+    elif dataset_type == 'zeros':
+        X = np.zeros((1, 1))
+        X[:, 0] = np.arange(1)
+        dataset = DenseDesignMatrix(X)
+    else:
+        raise ValueError('Unknown value for dataset_type: %s',
+                         dataset_type)
+
+    sgd = SGD(cost=cost,
+              learning_rate=learning_rate,
+              learning_rule=AdaGrad(),
+              batch_size=1)
+
+    sgd.setup(model=model, dataset=dataset)
+
+    state = {}
+    for param in model.get_params():
+        param_shape = param.get_value().shape
+        state[param] = {}
+        state[param]['sg2'] = np.zeros(param_shape)
+
+    return (cost, model, dataset, sgd, state)
+
+
+def test_adagrad():
+    """
+    Make sure that learning_rule.AdaGrad obtains the same parameter values as
+    with a hand-crafted AdaGrad implementation, given a dummy model and
+    learning rate scaler for each parameter.
+    Reference:
+    "Adaptive subgradient methods for online learning and
+    stochastic optimization", Duchi J, Hazan E, Singer Y.
+    """
+
+    cost, model, dataset, sgd, state = prepare_adagrad_test()
+
+    def adagrad_manual(model, state):
+        rval = []
+        for scale, param in izip(scales, model.get_params()):
+            pstate = state[param]
+            param_val = param.get_value()
+            # begin adadelta
+            pstate['sg2'] += param_val ** 2
+            dx_t = - (scale * learning_rate
+                      / np.sqrt(pstate['sg2'])
+                      * param_val)
+            rval += [param_val + dx_t]
+        return rval
+
+    manual = adagrad_manual(model, state)
+    sgd.train(dataset=dataset)
+    assert all(np.allclose(manual_param, sgd_param.get_value())
+               for manual_param, sgd_param
+               in izip(manual, model.get_params()))
+
+    manual = adagrad_manual(model, state)
+    sgd.train(dataset=dataset)
+    assert all(np.allclose(manual_param, sgd_param.get_value())
+               for manual_param, sgd_param in
+               izip(manual, model.get_params()))
+
+
+def test_adagard_max_scaling():
+    """
+    Tests the max_scaling argument to the constructor.
+    One corner case that prompted the insertion of this parameter is when
+    the weights are all-zeros (see #1496).
+    """
+
+    # the value must be positive
+    try:
+        AdaGrad(-1.0)
+        allows_null = True
+    except AssertionError:
+        allows_null = False
+    assert not allows_null
+
+    # should not generate RuntimeError and/or generate NaNs
+    def one_case(dataset_type, model_type):
+        # prepare a test bed
+        cost, model, dataset, sgd, state = prepare_adagrad_test(dataset_type,
+                                                                model_type)
+        # SGD will also throw RuntimeError if it finds NaNs
+        sgd.train(dataset=dataset)
+        for param in model.get_params():
+            assert not np.any(np.isnan(param.get_value()))
+    one_case('zeros', 'zeros')
+    one_case('arange', 'zeros')
+    one_case('zeros', 'random')
+    one_case('arange', 'random')
 
 
 def test_rmsprop():

@@ -32,11 +32,17 @@ numpydoc_show_class_members = False
 
 todo_include_todos = True
 
+# We do it like this to support multiple sphinx version without having warning.
+# Our buildbot consider warning as error.
 try:
-    from sphinx.ext import pngmath
-    extensions.append('sphinx.ext.pngmath')
+    from sphinx.ext import imgmath
+    extensions.append('sphinx.ext.imgmath')
 except ImportError:
-    pass
+    try:
+        from sphinx.ext import pngmath
+        extensions.append('sphinx.ext.pngmath')
+    except ImportError:
+        pass
 
 
 # Add any paths that contain templates here, relative to this directory.
@@ -50,7 +56,7 @@ master_doc = 'index'
 
 # General substitutions.
 project = 'Pylearn2'
-copyright = '2011, LISA lab'
+copyright = '2011-2015, LISA lab'
 
 # The default replacements for |version| and |release|, also used in various
 # other places throughout the built documents.
@@ -165,11 +171,17 @@ htmlhelp_basename = 'theanodoc'
 # Options for LaTeX output
 # ------------------------
 
-# The paper size ('letter' or 'a4').
-#latex_paper_size = 'letter'
+latex_elements = {
+    # The paper size ('letter' or 'a4').
+    #latex_paper_size = 'letter',
 
-# The font size ('10pt', '11pt' or '12pt').
-latex_font_size = '11pt'
+    # The font size ('10pt', '11pt' or '12pt').
+    'pointsize': '11pt',
+
+    # Additional stuff for the LaTeX preamble.
+    #latex_preamble = '',
+}
+
 
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, document class [howto/manual]).

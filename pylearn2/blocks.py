@@ -4,6 +4,8 @@ for operation on design matrices rather than generic Spaces, and without
 a concept of parameters.
 """
 # Standard library imports
+from __future__ import print_function
+
 import warnings
 
 # Third-party imports
@@ -19,7 +21,7 @@ theano.config.warn.sum_div_dimshuffle_bug = False
 
 use_slow_rng = 0
 if use_slow_rng:
-    print 'WARNING: using SLOW rng'
+    print('WARNING: using SLOW rng')
     RandomStreams = tensor.shared_randomstreams.RandomStreams
 else:
     import theano.sandbox.rng_mrg
@@ -35,6 +37,7 @@ class Block(object):
     #       theano Op. Supporting CompositeSpace would allow more complicated
     #       structures than just chains.
     def __init__(self):
+        super(Block, self).__init__()
         self.fn = None
         self.cpu_only = False
 
@@ -92,7 +95,7 @@ class Block(object):
             WRITEME
         """
         raise NotImplementedError(
-                "%s does not implement set_input_space yet" % str(type(self)))
+            "%s does not implement set_input_space yet" % str(type(self)))
 
     def get_input_space(self):
         """
@@ -101,7 +104,7 @@ class Block(object):
             WRITEME
         """
         raise NotImplementedError(
-                "%s does not implement get_input_space yet" % str(type(self)))
+            "%s does not implement get_input_space yet" % str(type(self)))
 
     def get_output_space(self):
         """
@@ -110,7 +113,7 @@ class Block(object):
             WRITEME
         """
         raise NotImplementedError(
-                "%s does not implement get_output_space yet" % str(type(self)))
+            "%s does not implement get_output_space yet" % str(type(self)))
 
 
 class StackedBlocks(Block):
@@ -128,8 +131,15 @@ class StackedBlocks(Block):
         super(StackedBlocks, self).__init__()
 
         self._layers = layers
-        # Do not duplicate the parameters if some are shared between layers
-        self._params = set([p for l in self._layers for p in l._params])
+        self._params = set()
+        for l in self._layers:
+            if not hasattr(l, '_params'):
+                self._params = None
+                break
+            else:
+                # Do not duplicate the parameters if some are shared
+                # between layers
+                self._params.update(l._params)
 
     def layers(self):
         """
@@ -200,9 +210,9 @@ class StackedBlocks(Block):
             inputs = tensor.matrix()
 
         return theano.function(
-                [inputs],
-                outputs=self(inputs)[repr_index],
-                name=name)
+            [inputs],
+            outputs=self(inputs)[repr_index],
+            name=name)
 
     def concat(self, name=None, start_index=-1, end_index=None):
         """
@@ -224,8 +234,10 @@ class StackedBlocks(Block):
         WRITEME
         """
         inputs = tensor.matrix()
-        return theano.function([inputs],
-            outputs=tensor.concatenate(self(inputs)[start_index:end_index]),
+        return theano.function(
+            [inputs],
+            outputs=tensor.concatenate(
+                self(inputs)[start_index:end_index]),
             name=name)
 
     def append(self, layer):
@@ -237,7 +249,8 @@ class StackedBlocks(Block):
         layer : WRITEME
         """
         self._layers.append(layer)
-        self._params.update(layer._params)
+        if self._params is not None:
+            self._params.update(layer._params)
 
     def get_input_space(self):
         """

@@ -30,12 +30,14 @@ import logging
 import numpy as np
 import warnings
 
-from theano.compat.python2x import OrderedDict
+from theano.compat.six.moves import xrange
 from theano.compat.six.moves import zip as izip
 from theano.sandbox import cuda
 from theano import tensor as T
 
+from pylearn2.compat import OrderedDict
 from pylearn2.linear.matrixmul import MatrixMul
+from pylearn2.model_extensions.norm_constraint import MaxL2FilterNorm
 from pylearn2.models.mlp import Layer
 from pylearn2.models.model import Model
 from pylearn2.space import Conv2DSpace
@@ -99,26 +101,28 @@ class Maxout(Layer):
     init_bias : float or ndarray, optional
         A value that can be broadcasted to a numpy vector.
         All biases are initialized to this number.
-    W_lr_scale: float, optional
+    W_lr_scale : float, optional
         The learning rate on the weights for this layer is multiplied by
         this scaling factor
-    b_lr_scale: float, optional
+    b_lr_scale : float, optional
         The learning rate on the biases for this layer is multiplied by
         this scaling factor
-    max_col_norm: float, optional
+    max_col_norm : float, optional
         The norm of each column of the weight matrix is constrained to
         have at most this norm. If unspecified, no constraint. Constraint
         is enforced by re-projection (if necessary) at the end of each
         update.
-    max_row_norm: float, optional
+    max_row_norm : float, optional
         Like max_col_norm, but applied to the rows.
-    mask_weights: ndarray, optional
+    mask_weights : ndarray, optional
         A binary matrix multiplied by the weights after each update,
         allowing you to restrict their connectivity.
-    min_zero: bool, optional
+    min_zero : bool, optional
         If true, includes a zero in the set we take a max over for each
         maxout unit. This is equivalent to pooling over rectified
         linear units.
+    kwargs : dict
+        Passed on to superclass
     """
 
     def __str__(self):
@@ -147,9 +151,10 @@ class Maxout(Layer):
                  max_col_norm=None,
                  max_row_norm=None,
                  mask_weights=None,
-                 min_zero=False):
+                 min_zero=False,
+                 **kwargs):
 
-        super(Maxout, self).__init__()
+        super(Maxout, self).__init__(**kwargs)
 
         detector_layer_dim = num_units * num_pieces
         pool_size = num_pieces
@@ -163,8 +168,11 @@ class Maxout(Layer):
         self.b = sharedX(np.zeros((self.detector_layer_dim,)) + init_bias,
                          name=(layer_name + '_b'))
 
+        if max_col_norm is not None:
+            self.extensions.append(MaxL2FilterNorm(max_col_norm, axis=0))
+
         if max_row_norm is not None:
-            raise NotImplementedError()
+            self.extensions.append(MaxL2FilterNorm(max_row_norm, axis=1))
 
     @functools.wraps(Model.get_lr_scalers)
     def get_lr_scalers(self):
@@ -281,7 +289,7 @@ class Maxout(Layer):
     def _modify_updates(self, updates):
         """
         Replaces the values in `updates` if needed to enforce the options set
-        in the __init__ method, including `mask_weights` and `max_col_norm`.
+        in the __init__ method, including `mask_weights`
 
         Parameters
         ----------
@@ -302,15 +310,6 @@ class Maxout(Layer):
             W, = self.transformer.get_params()
             if W in updates:
                 updates[W] = updates[W] * self.mask
-
-        if self.max_col_norm is not None:
-            assert self.max_row_norm is None
-            W, = self.transformer.get_params()
-            if W in updates:
-                updated_W = updates[W]
-                col_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=0))
-                desired_norms = T.clip(col_norms, 0, self.max_col_norm)
-                updates[W] = updated_W * (desired_norms / (1e-7 + col_norms))
 
     @functools.wraps(Model.get_params)
     def get_params(self):
@@ -408,81 +407,6 @@ class Maxout(Layer):
                                    axes=('b', 0, 1, 'c'))
         W = self.desired_space.format_as(W.T, viewer_space)
         rval = W.eval()
-        return rval
-
-    @functools.wraps(Layer.get_monitoring_channels)
-    def get_monitoring_channels(self):
-        warnings.warn("Layer.get_monitoring_channels is " +
-                      "deprecated. Use get_layer_monitoring_channels " +
-                      "instead. Layer.get_monitoring_channels " +
-                      "will be removed on or after september 24th 2014",
-                      stacklevel=2)
-
-        W, = self.transformer.get_params()
-
-        assert W.ndim == 2
-
-        sq_W = T.sqr(W)
-
-        row_norms = T.sqrt(sq_W.sum(axis=1))
-        col_norms = T.sqrt(sq_W.sum(axis=0))
-
-        row_norms_min = row_norms.min()
-        row_norms_min.__doc__ = ("The smallest norm of any row of the "
-                                 "weight matrix W. This is a measure of the "
-                                 "least influence any visible unit has.")
-
-        return OrderedDict([('row_norms_min', row_norms_min),
-                            ('row_norms_mean', row_norms.mean()),
-                            ('row_norms_max', row_norms.max()),
-                            ('col_norms_min', col_norms.min()),
-                            ('col_norms_mean', col_norms.mean()),
-                            ('col_norms_max', col_norms.max()), ])
-
-    @functools.wraps(Layer.get_monitoring_channels_from_state)
-    def get_monitoring_channels_from_state(self, state):
-        warnings.warn("Layer.get_monitoring_channels_from_state is " +
-                      "deprecated. Use get_layer_monitoring_channels " +
-                      "instead. Layer.get_monitoring_channels_from_state " +
-                      "will be removed on or after september 24th 2014",
-                      stacklevel=2)
-
-        P = state
-
-        rval = OrderedDict()
-
-        if self.pool_size == 1:
-            vars_and_prefixes = [(P, '')]
-        else:
-            vars_and_prefixes = [(P, 'p_')]
-
-        for var, prefix in vars_and_prefixes:
-            v_max = var.max(axis=0)
-            v_min = var.min(axis=0)
-            v_mean = var.mean(axis=0)
-            v_range = v_max - v_min
-
-            # max_x.mean_u is "the mean over *u*nits of the max over
-            # e*x*amples" The x and u are included in the name because
-            # otherwise its hard to remember which axis is which when reading
-            # the monitor I use inner.outer rather than outer_of_inner or
-            # something like that because I want mean_x.* to appear next to
-            # each other in the alphabetical list, as these are commonly
-            # plotted together
-            for key, val in [('max_x.max_u', v_max.max()),
-                             ('max_x.mean_u', v_max.mean()),
-                             ('max_x.min_u', v_max.min()),
-                             ('min_x.max_u', v_min.max()),
-                             ('min_x.mean_u', v_min.mean()),
-                             ('min_x.min_u', v_min.min()),
-                             ('range_x.max_u', v_range.max()),
-                             ('range_x.mean_u', v_range.mean()),
-                             ('range_x.min_u', v_range.min()),
-                             ('mean_x.max_u', v_mean.max()),
-                             ('mean_x.mean_u', v_mean.mean()),
-                             ('mean_x.min_u', v_mean.min())]:
-                rval[prefix+key] = val
-
         return rval
 
     @functools.wraps(Layer.get_layer_monitoring_channels)
@@ -723,6 +647,11 @@ class MaxoutConvC01B(Layer):
         self.__dict__.update(locals())
         del self.self
 
+        if max_kernel_norm is not None:
+            self.extensions.append(
+                MaxL2FilterNorm(max_kernel_norm, axis=(0, 1, 2))
+            )
+
     @functools.wraps(Model.get_lr_scalers)
     def get_lr_scalers(self):
 
@@ -756,11 +685,11 @@ class MaxoutConvC01B(Layer):
             The Space that the input will lie in.
         """
 
+        rng = self.mlp.rng
+
         setup_detector_layer_c01b(layer=self,
                                   input_space=space,
-                                  rng=self.mlp.rng)
-
-        rng = self.mlp.rng
+                                  rng=rng)
 
         detector_shape = self.detector_space.shape
 
@@ -808,31 +737,6 @@ class MaxoutConvC01B(Layer):
 
         logger.info('Output space: {0}'.format(self.output_space.shape))
 
-    def _modify_updates(self, updates):
-        """
-        Replaces the values in `updates` if needed to enforce the options set
-        in the __init__ method, including `max_kernel_norm`.
-
-        Parameters
-        ----------
-        updates : OrderedDict
-            A dictionary mapping parameters (including parameters not
-            belonging to this model) to updated values of those parameters.
-            The dictionary passed in contains the updates proposed by the
-            learning algorithm. This function modifies the dictionary
-            directly. The modified version will be compiled and executed
-            by the learning algorithm.
-        """
-
-        if self.max_kernel_norm is not None:
-            W, = self.transformer.get_params()
-            if W in updates:
-                updated_W = updates[W]
-                row_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=(0, 1, 2)))
-                desired_norms = T.clip(row_norms, 0, self.max_kernel_norm)
-                scales = desired_norms / (1e-7 + row_norms)
-                updates[W] = (updated_W * scales.dimshuffle('x', 'x', 'x', 0))
-
     @functools.wraps(Model.get_params)
     def get_params(self):
         assert self.b.name is not None
@@ -870,26 +774,6 @@ class MaxoutConvC01B(Layer):
     def get_weights_topo(self):
         return self.transformer.get_weights_topo()
 
-    @functools.wraps(Layer.get_monitoring_channels)
-    def get_monitoring_channels(self):
-        warnings.warn("Layer.get_monitoring_channels is " +
-                      "deprecated. Use get_layer_monitoring_channels " +
-                      "instead. Layer.get_monitoring_channels " +
-                      "will be removed on or after september 24th 2014",
-                      stacklevel=2)
-
-        W, = self.transformer.get_params()
-
-        assert W.ndim == 4
-
-        sq_W = T.sqr(W)
-
-        row_norms = T.sqrt(sq_W.sum(axis=(0, 1, 2)))
-
-        return OrderedDict([('kernel_norms_min', row_norms.min()),
-                            ('kernel_norms_mean', row_norms.mean()),
-                            ('kernel_norms_max', row_norms.max()), ])
-
     @functools.wraps(Layer.fprop)
     def fprop(self, state_below):
         check_cuda(str(type(self)))
@@ -924,7 +808,11 @@ class MaxoutConvC01B(Layer):
 
         self.detector_space.validate(z)
 
-        assert self.detector_space.num_channels % 16 == 0
+        assert self.detector_space.num_channels % 16 == 0, (
+            'Wrong channels number: ' + str(self.detector_space.num_channels) +
+            '. The number of channels should be a multiple of 16. Note that '
+            'the number of channels is determined as: num_channels * '
+            'num_pieces')
 
         if self.output_space.num_channels % 16 == 0:
             # alex's max pool op only works when the number of channels
@@ -991,50 +879,6 @@ class MaxoutConvC01B(Layer):
         if rows * cols < total:
             rows = rows + 1
         return rows, cols
-
-    @functools.wraps(Layer.get_monitoring_channels_from_state)
-    def get_monitoring_channels_from_state(self, state):
-        warnings.warn("Layer.get_monitoring_channels_from_state is " +
-                      "deprecated. Use get_layer_monitoring_channels " +
-                      "instead. Layer.get_monitoring_channels_from_state " +
-                      "will be removed on or after september 24th 2014",
-                      stacklevel=2)
-
-        P = state
-
-        rval = OrderedDict()
-
-        vars_and_prefixes = [(P, '')]
-
-        for var, prefix in vars_and_prefixes:
-            assert var.ndim == 4
-            v_max = var.max(axis=(1, 2, 3))
-            v_min = var.min(axis=(1, 2, 3))
-            v_mean = var.mean(axis=(1, 2, 3))
-            v_range = v_max - v_min
-
-            # max_x.mean_u is "the mean over *u*nits of the max over
-            # e*x*amples" The x and u are included in the name because
-            # otherwise its hard to remember which axis is which when reading
-            # the monitor I use inner.outer rather than outer_of_inner or
-            # something like that because I want mean_x.* to appear next to
-            # each other in the alphabetical list, as these are commonly
-            # plotted together
-            for key, val in [('max_x.max_u', v_max.max()),
-                             ('max_x.mean_u', v_max.mean()),
-                             ('max_x.min_u', v_max.min()),
-                             ('min_x.max_u', v_min.max()),
-                             ('min_x.mean_u', v_min.mean()),
-                             ('min_x.min_u', v_min.min()),
-                             ('range_x.max_u', v_range.max()),
-                             ('range_x.mean_u', v_range.mean()),
-                             ('range_x.min_u', v_range.min()),
-                             ('mean_x.max_u', v_mean.max()),
-                             ('mean_x.mean_u', v_mean.mean()),
-                             ('mean_x.min_u', v_mean.min())]:
-                rval[prefix + key] = val
-
-        return rval
 
     @functools.wraps(Layer.get_layer_monitoring_channels)
     def get_layer_monitoring_channels(self, state_below=None,
@@ -1174,8 +1018,6 @@ class MaxoutLocalC01B(Layer):
         If true, all biases in the same channel are constrained to be the
         same as each other. Otherwise, each bias at each location is
         learned independently.
-    max_filter_norm : float, optional
-        DEPRECATED, use max_kernel_norm instead.
     max_kernel_norm : float, optional
         If specified, each kernel is constrained to have at most this norm.
     input_normalization : callable
@@ -1218,7 +1060,6 @@ class MaxoutLocalC01B(Layer):
                  fix_kernel_shape=False,
                  partial_sum=1,
                  tied_b=False,
-                 max_filter_norm=None,
                  max_kernel_norm=None,
                  input_normalization=None,
                  detector_normalization=None,
@@ -1227,19 +1068,18 @@ class MaxoutLocalC01B(Layer):
                  input_groups=1,
                  kernel_stride=(1, 1)):
 
-        if max_filter_norm is not None:
-            max_kernel_norm = max_filter_norm
-            warnings.warn("max_filter_norm argument is deprecated, use "
-                          "max_kernel_norm instead. max_filter_norm "
-                          "will be removed on or after 2014-10-02.",
-                          stacklevel=2)
-
         assert (pool_shape is None) == (pool_stride is None)
+        super(MaxoutLocalC01B, self).__init__()
 
         detector_channels = num_channels * num_pieces
 
         self.__dict__.update(locals())
         del self.self
+
+        if max_kernel_norm is not None:
+            self.extensions.append(
+                MaxL2FilterNorm(max_kernel_norm, axis=(2, 3, 4))
+            )
 
     @functools.wraps(Model.get_lr_scalers)
     def get_lr_scalers(self):
@@ -1410,33 +1250,6 @@ class MaxoutLocalC01B(Layer):
 
         logger.info('Output space: {0}'.format(self.output_space.shape))
 
-    def _modify_updates(self, updates):
-        """
-        Replaces the values in `updates` if needed to enforce the options set
-        in the __init__ method, including `max_kernel_norm`.
-
-        Parameters
-        ----------
-        updates : OrderedDict
-            A dictionary mapping parameters (including parameters not
-            belonging to this model) to updated values of those parameters.
-            The dictionary passed in contains the updates proposed by the
-            learning algorithm. This function modifies the dictionary
-            directly. The modified version will be compiled and executed
-            by the learning algorithm.
-        """
-
-        if self.max_kernel_norm is not None:
-            W, = self.transformer.get_params()
-            if W in updates:
-                # TODO:    push some of this into the transformer itself
-                updated_W = updates[W]
-                updated_norms = self.get_filter_norms(updated_W)
-                desired_norms = T.clip(updated_norms, 0, self.max_kernel_norm)
-                scales = desired_norms / (1e-7 + updated_norms)
-                updates[W] = (updated_W *
-                              scales.dimshuffle(0, 1, 'x', 'x', 'x', 2, 3))
-
     @functools.wraps(Model.get_params)
     def get_params(self):
         assert self.b.name is not None
@@ -1497,20 +1310,6 @@ class MaxoutLocalC01B(Layer):
         norms = T.sqrt(sq_W.sum(axis=(2, 3, 4)))
 
         return norms
-
-    @functools.wraps(Layer.get_monitoring_channels)
-    def get_monitoring_channels(self):
-        warnings.warn("Layer.get_monitoring_channels is " +
-                      "deprecated. Use get_layer_monitoring_channels " +
-                      "instead. Layer.get_monitoring_channels " +
-                      "will be removed on or after september 24th 2014",
-                      stacklevel=2)
-
-        filter_norms = self.get_filter_norms()
-
-        return OrderedDict([('filter_norms_min', filter_norms.min()),
-                            ('filter_norms_mean', filter_norms.mean()),
-                            ('filter_norms_max', filter_norms.max()), ])
 
     @functools.wraps(Layer.fprop)
     def fprop(self, state_below):
@@ -1622,50 +1421,6 @@ class MaxoutLocalC01B(Layer):
         if rows * cols < total:
             rows = rows + 1
         return rows, cols
-
-    @functools.wraps(Layer.get_monitoring_channels_from_state)
-    def get_monitoring_channels_from_state(self, state):
-        warnings.warn("Layer.get_monitoring_channels_from_state is " +
-                      "deprecated. Use get_layer_monitoring_channels " +
-                      "instead. Layer.get_monitoring_channels_from_state " +
-                      "will be removed on or after september 24th 2014",
-                      stacklevel=2)
-
-        P = state
-
-        rval = OrderedDict()
-
-        vars_and_prefixes = [(P, '')]
-
-        for var, prefix in vars_and_prefixes:
-            assert var.ndim == 4
-            v_max = var.max(axis=(1, 2, 3))
-            v_min = var.min(axis=(1, 2, 3))
-            v_mean = var.mean(axis=(1, 2, 3))
-            v_range = v_max - v_min
-
-            # max_x.mean_u is "the mean over *u*nits of the max over
-            # e*x*amples" The x and u are included in the name because
-            # otherwise its hard to remember which axis is which when reading
-            # the monitor I use inner.outer rather than outer_of_inner or
-            # something like that because I want mean_x.* to appear next to
-            # each other in the alphabetical list, as these are commonly
-            # plotted together
-            for key, val in [('max_x.max_u', v_max.max()),
-                             ('max_x.mean_u', v_max.mean()),
-                             ('max_x.min_u', v_max.min()),
-                             ('min_x.max_u', v_min.max()),
-                             ('min_x.mean_u', v_min.mean()),
-                             ('min_x.min_u', v_min.min()),
-                             ('range_x.max_u', v_range.max()),
-                             ('range_x.mean_u', v_range.mean()),
-                             ('range_x.min_u', v_range.min()),
-                             ('mean_x.max_u', v_mean.max()),
-                             ('mean_x.mean_u', v_mean.mean()),
-                             ('mean_x.min_u', v_mean.min())]:
-                rval[prefix + key] = val
-
-        return rval
 
     @functools.wraps(Layer.get_layer_monitoring_channels)
     def get_layer_monitoring_channels(self, state_below=None,

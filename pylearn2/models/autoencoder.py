@@ -9,7 +9,7 @@ import operator
 import numpy
 import theano
 from theano import tensor
-from theano.compat.six.moves import zip as izip
+from theano.compat.six.moves import zip as izip, reduce
 
 # Local imports
 from pylearn2.blocks import Block, StackedBlocks
@@ -22,7 +22,87 @@ from pylearn2.space import VectorSpace
 theano.config.warn.sum_div_dimshuffle_bug = False
 
 
-class Autoencoder(Block, Model):
+class AbstractAutoencoder(Model, Block):
+    """
+    Abstract class for autoencoders.
+    """
+    def __init__(self):
+        super(AbstractAutoencoder, self).__init__()
+
+    def encode(self, inputs):
+        """
+        Map inputs through the encoder function.
+
+        Parameters
+        ----------
+        inputs : tensor_like or list of tensor_likes
+            Theano symbolic (or list thereof) representing the input
+            minibatch(es) to be encoded. Assumed to be 2-tensors, with the
+            first dimension indexing training examples and the second
+            indexing data dimensions.
+
+        Returns
+        -------
+        encoded : tensor_like or list of tensor_like
+            Theano symbolic (or list thereof) representing the corresponding
+            minibatch(es) after encoding.
+        """
+        raise NotImplementedError(
+            str(type(self)) + " does not implement encode.")
+
+    def decode(self, hiddens):
+        """
+        Map inputs through the encoder function.
+
+        Parameters
+        ----------
+        hiddens : tensor_like or list of tensor_likes
+            Theano symbolic (or list thereof) representing the input
+            minibatch(es) to be encoded. Assumed to be 2-tensors, with the
+            first dimension indexing training examples and the second
+            indexing data dimensions.
+
+        Returns
+        -------
+        decoded : tensor_like or list of tensor_like
+            Theano symbolic (or list thereof) representing the corresponding
+            minibatch(es) after decoding.
+        """
+        raise NotImplementedError(
+            str(type(self)) + " does not implement decode.")
+
+    def reconstruct(self, inputs):
+        """
+        Reconstruct (decode) the inputs after mapping through the encoder.
+
+        Parameters
+        ----------
+        inputs : tensor_like or list of tensor_likes
+            Theano symbolic (or list thereof) representing the input
+            minibatch(es) to be encoded and reconstructed. Assumed to be
+            2-tensors, with the first dimension indexing training examples
+            and the second indexing data dimensions.
+
+        Returns
+        -------
+        reconstructed : tensor_like or list of tensor_like
+            Theano symbolic (or list thereof) representing the corresponding
+            reconstructed minibatch(es) after encoding/decoding.
+        """
+        return self.decode(self.encode(inputs))
+
+    def __call__(self, inputs):
+        """
+        Forward propagate (symbolic) input through this module, obtaining
+        a representation to pass on to layers above.
+
+        This just aliases the `encode()` function for syntactic
+        sugar/convenience.
+        """
+        return self.encode(inputs)
+
+
+class Autoencoder(AbstractAutoencoder):
     """
     Base class implementing ordinary autoencoders.
 
@@ -55,15 +135,21 @@ class Autoencoder(Block, Model):
         `True`, the decoder weight matrix will be constrained to be equal
         to the transpose of the encoder weight matrix.
     irange : float, optional
-        Width of the initial range around 0 from which to sample initial
-        values for the weights.
+        If specified, initialized each weight randomly in U(-irange, irange).
+        Must be specified if istdev is not. Defaults to 1e-3.
+    istdev : float, optional
+        If specified, initialize each weight randomly from N(0,istdev). Must
+        be specified if irange is not. Default to None.
     rng : RandomState object or seed, optional
         NumPy random number generator object (or seed to create one) used
         to initialize the model parameters.
     """
 
     def __init__(self, nvis, nhid, act_enc, act_dec,
-                 tied_weights=False, irange=1e-3, rng=9001):
+                 tied_weights=False, irange=1e-3, istdev=None, rng=9001):
+        """
+        WRITEME
+        """
         super(Autoencoder, self).__init__()
         assert nvis > 0, "Number of visible units must be non-negative"
         assert nhid > 0, "Number of hidden units must be positive"
@@ -72,8 +158,10 @@ class Autoencoder(Block, Model):
         self.output_space = VectorSpace(nhid)
 
         # Save a few parameters needed for resizing
+        self.nvis = nvis
         self.nhid = nhid
         self.irange = irange
+        self.istdev = istdev
         self.tied_weights = tied_weights
         self.rng = make_np_rng(rng, which_method="randn")
         self._initialize_hidbias()
@@ -114,7 +202,7 @@ class Autoencoder(Block, Model):
                 return getattr(tensor, conf[conf_attr])
             else:
                 raise ValueError("Couldn't interpret %s value: '%s'" %
-                                    (conf_attr, conf[conf_attr]))
+                                 (conf_attr, conf[conf_attr]))
 
         self.act_enc = _resolve_callable(locals(), 'act_enc')
         self.act_dec = _resolve_callable(locals(), 'act_dec')
@@ -126,7 +214,7 @@ class Autoencoder(Block, Model):
         if not self.tied_weights:
             self._params.append(self.w_prime)
 
-    def _initialize_weights(self, nvis, rng=None, irange=None):
+    def _initialize_weights(self, nvis, rng=None, irange=None, istdev=None):
         """
         .. todo::
 
@@ -136,12 +224,22 @@ class Autoencoder(Block, Model):
             rng = self.rng
         if irange is None:
             irange = self.irange
+        if istdev is None:
+            istdev = self.istdev
+
         # TODO: use weight scaling factor if provided, Xavier's default else
-        self.weights = sharedX(
-            (.5 - rng.rand(nvis, self.nhid)) * irange,
-            name='W',
-            borrow=True
-        )
+        if irange is not None:
+            assert istdev is None
+            W = rng.uniform(
+                -irange,
+                irange,
+                (nvis, self.nhid)
+            )
+        else:
+            assert istdev is not None
+            W = rng.randn(nvis, self.nhid) * istdev
+
+        self.weights = sharedX(W, name='W', borrow=True)
 
     def _initialize_hidbias(self):
         """
@@ -167,7 +265,7 @@ class Autoencoder(Block, Model):
             borrow=True
         )
 
-    def _initialize_w_prime(self, nvis, rng=None, irange=None):
+    def _initialize_w_prime(self, nvis, rng=None, irange=None, istdev=None):
         """
         .. todo::
 
@@ -181,11 +279,17 @@ class Autoencoder(Block, Model):
             rng = self.rng
         if irange is None:
             irange = self.irange
-        self.w_prime = sharedX(
-            (.5 - rng.rand(self.nhid, nvis)) * irange,
-            name='Wprime',
-            borrow=True
-        )
+        if istdev is None:
+            istdev = self.istdev
+
+        if irange is not None:
+            assert istdev is None
+            W = (.5 - rng.rand(self.nhid, nvis)) * irange
+        else:
+            assert istdev is not None
+            W = rng.randn(self.nhid, nvis) * istdev
+
+        self.w_prime = sharedX(W, name='Wprime', borrow=True)
 
     def set_visible_size(self, nvis, rng=None):
         """
@@ -316,44 +420,13 @@ class Autoencoder(Block, Model):
         else:
             return [self.decode(v) for v in hiddens]
 
-    def reconstruct(self, inputs):
-        """
-        Reconstruct (decode) the inputs after mapping through the encoder.
-
-        Parameters
-        ----------
-        inputs : tensor_like or list of tensor_likes
-            Theano symbolic (or list thereof) representing the input
-            minibatch(es) to be encoded and reconstructed. Assumed to be
-            2-tensors, with the first dimension indexing training examples
-            and the second indexing data dimensions.
-
-        Returns
-        -------
-        reconstructed : tensor_like or list of tensor_like
-            Theano symbolic (or list thereof) representing the corresponding
-            reconstructed minibatch(es) after encoding/decoding.
-        """
-        return self.decode(self.encode(inputs))
-
-    def __call__(self, inputs):
-        """
-        Forward propagate (symbolic) input through this module, obtaining
-        a representation to pass on to layers above.
-
-        This just aliases the `encode()` function for syntactic
-        sugar/convenience.
-        """
-        return self.encode(inputs)
-
     def get_weights(self, borrow=False):
         """
         .. todo::
 
             WRITEME
         """
-
-        return self.weights.get_value(borrow = borrow)
+        return self.weights.get_value(borrow=borrow)
 
     def get_weights_format(self):
         """
@@ -361,13 +434,7 @@ class Autoencoder(Block, Model):
 
             WRITEME
         """
-
         return ['v', 'h']
-
-    # Use version defined in Model, rather than Block (which raises
-    # NotImplementedError).
-    get_input_space = Model.get_input_space
-    get_output_space = Model.get_output_space
 
 
 class DenoisingAutoencoder(Autoencoder):
@@ -380,16 +447,6 @@ class DenoisingAutoencoder(Autoencoder):
     corruptor : object
         Instance of a corruptor object to use for corrupting the
         input.
-    nvis : int
-        WRITEME
-    nhid : int
-        WRITEME
-    act_enc : WRITEME
-    act_dec : WRITEME
-    tied_weights : bool, optional
-        WRITEME
-    irange : WRITEME
-    rng : WRITEME
 
     Notes
     -----
@@ -398,15 +455,16 @@ class DenoisingAutoencoder(Autoencoder):
     for details.
     """
     def __init__(self, corruptor, nvis, nhid, act_enc, act_dec,
-                 tied_weights=False, irange=1e-3, rng=9001):
+                 tied_weights=False, irange=1e-3, istdev=None, rng=9001):
         super(DenoisingAutoencoder, self).__init__(
-            nvis,
-            nhid,
-            act_enc,
-            act_dec,
-            tied_weights,
-            irange,
-            rng
+            nvis=nvis,
+            nhid=nhid,
+            act_enc=act_enc,
+            act_dec=act_dec,
+            tied_weights=tied_weights,
+            irange=irange,
+            istdev=istdev,
+            rng=rng
         )
         self.corruptor = corruptor
 
@@ -541,7 +599,8 @@ class ContractiveAutoencoder(Autoencoder):
         """
         X = data
         act_grad = self._activation_grad(X)
-        frob_norm = tensor.dot(tensor.sqr(act_grad), tensor.sqr(self.weights).sum(axis=0))
+        frob_norm = tensor.dot(tensor.sqr(act_grad),
+                               tensor.sqr(self.weights).sum(axis=0))
         contract_penalty = frob_norm.sum() / X.shape[0]
         return tensor.cast(contract_penalty, X .dtype)
 
@@ -564,15 +623,6 @@ class HigherOrderContractiveAutoencoder(ContractiveAutoencoder):
         Instance of a corruptor object to use for corrupting the input.
     num_corruptions : integer
         number of corrupted inputs to use
-    nvis : int
-        WRITEME
-    nhid : int
-        WRITEME
-    act_enc : WRITEME
-    act_dec : WRITEME
-    tied_weights : WRITEME
-    irange : WRITEME
-    rng : WRITEME
 
     Notes
     -----
@@ -581,19 +631,20 @@ class HigherOrderContractiveAutoencoder(ContractiveAutoencoder):
     docstring for details.
     """
     def __init__(self, corruptor, num_corruptions, nvis, nhid, act_enc,
-                    act_dec, tied_weights=False, irange=1e-3, rng=9001):
+                 act_dec, tied_weights=False, irange=1e-3, istdev=None,
+                 rng=9001):
         super(HigherOrderContractiveAutoencoder, self).__init__(
-            nvis,
-            nhid,
-            act_enc,
-            act_dec,
-            tied_weights,
-            irange,
-            rng
+            nvis=nvis,
+            nhid=nhid,
+            act_enc=act_enc,
+            act_dec=act_dec,
+            tied_weights=tied_weights,
+            irange=irange,
+            istdev=istdev,
+            rng=rng
         )
         self.corruptor = corruptor
         self.num_corruptions = num_corruptions
-
 
     def higher_order_penalty(self, data):
         """
@@ -609,12 +660,12 @@ class HigherOrderContractiveAutoencoder(ContractiveAutoencoder):
         """
         X = data
 
-        corrupted_inputs = [self.corruptor(X) for times in\
+        corrupted_inputs = [self.corruptor(X) for times in
                             range(self.num_corruptions)]
 
-        hessian = tensor.concatenate([self.jacobian_h_x(X) - \
-                                self.jacobian_h_x(corrupted) for\
-                                corrupted in corrupted_inputs])
+        hessian = tensor.concatenate(
+            [self.jacobian_h_x(X) - self.jacobian_h_x(corrupted)
+             for corrupted in corrupted_inputs])
 
         return (hessian ** 2).mean()
 
@@ -639,21 +690,27 @@ class UntiedAutoencoder(Autoencoder):
     """
 
     def __init__(self, base):
-        if not base.tied_weights:
+        if not (isinstance(base, Autoencoder) and base.tied_weights):
             raise ValueError("%s is not a tied-weights autoencoder" %
                              str(base))
-        self.weights = tensor.shared(base.weights.get_value(borrow=False),
+
+        super(UntiedAutoencoder, self).__init__(
+            nvis=base.nvis, nhid=base.nhid, act_enc=base.act_enc,
+            act_dec=base.act_dec, tied_weights=True, irange=base.irange,
+            istdev=base.istdev, rng=base.rng)
+
+        self.weights = theano.shared(base.weights.get_value(borrow=False),
                                      name='weights')
-        self.visbias = tensor.shared(base.visbias.get_value(borrow=False),
+        self.visbias = theano.shared(base.visbias.get_value(borrow=False),
                                      name='vb')
-        self.hidbias = tensor.shared(base.visbias.get_value(borrow=False),
+        self.hidbias = theano.shared(base.visbias.get_value(borrow=False),
                                      name='hb')
-        self.w_prime = tensor.shared(base.weights.get_value(borrow=False).T,
+        self.w_prime = theano.shared(base.weights.get_value(borrow=False).T,
                                      name='w_prime')
         self._params = [self.visbias, self.hidbias, self.weights, self.w_prime]
 
 
-class DeepComposedAutoencoder(Autoencoder):
+class DeepComposedAutoencoder(AbstractAutoencoder):
     """
     A deep autoencoder composed of several single-layer
     autoencoders.
@@ -664,10 +721,13 @@ class DeepComposedAutoencoder(Autoencoder):
         A list of autoencoder objects.
     """
     def __init__(self, autoencoders):
+        super(DeepComposedAutoencoder, self).__init__()
         self.fn = None
         self.cpu_only = False
 
-        assert all([autoencoders[i].get_output_space().dim == autoencoders[i+1].get_input_space().dim for i in range(len(autoencoders)-1)])
+        assert all(pre.get_output_space().dim == post.get_input_space().dim
+                   for pre, post in izip(autoencoders[:-1], autoencoders[1:]))
+
         self.autoencoders = list(autoencoders)
         self.input_space = autoencoders[0].get_input_space()
         self.output_space = autoencoders[-1].get_output_space()
@@ -716,6 +776,29 @@ class DeepComposedAutoencoder(Autoencoder):
             autoencoder.modify_updates(updates)
 
 
+class StackedDenoisingAutoencoder(DeepComposedAutoencoder):
+    """
+    A stacked denoising autoencoder learns a representation of the input by
+    reconstructing a noisy version of it.
+
+    Parameters
+    ----------
+    autoencoders : list
+        A list of autoencoder objects.
+    corruptor : object
+        Instance of a corruptor object to use for corrupting the
+        input.
+    """
+    def __init__(self, autoencoders, corruptor):
+        super(StackedDenoisingAutoencoder, self).__init__(autoencoders)
+        self.corruptor = corruptor
+
+    @functools.wraps(AbstractAutoencoder.reconstruct)
+    def reconstruct(self, inputs):
+        corrupted = self.corruptor(inputs)
+        return super(StackedDenoisingAutoencoder, self).reconstruct(corrupted)
+
+
 def build_stacked_ae(nvis, nhids, act_enc, act_dec,
                      tied_weights=False, irange=1e-3, rng=None,
                      corruptor=None, contracting=False):
@@ -742,13 +825,12 @@ def build_stacked_ae(nvis, nhids, act_enc, act_dec,
     # size and the first k-1 hidden unit sizes.
     nviss = [nvis] + nhids[:-1]
     seq = izip(nhids, nviss,
-        final['act_enc'],
-        final['act_dec'],
-        final['corruptor'],
-        final['contracting'],
-        final['tied_weights'],
-        final['irange'],
-    )
+               final['act_enc'],
+               final['act_dec'],
+               final['corruptor'],
+               final['contracting'],
+               final['tied_weights'],
+               final['irange'],)
     # Create each layer.
     for (nhid, nvis, act_enc, act_dec, corr, cae, tied, ir) in seq:
         args = (nvis, nhid, act_enc, act_dec, tied, ir, rng)

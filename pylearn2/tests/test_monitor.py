@@ -1,12 +1,15 @@
+from __future__ import print_function
+
 import numpy as np
 import warnings
 from nose.tools import assert_raises
+from theano.compat.six.moves import xrange
 
 from theano.compat import exc_message
-from theano.compat.python2x import OrderedDict
 from theano import shared
 from theano import tensor as T
 
+from pylearn2.compat import OrderedDict
 from pylearn2.costs.cost import Cost
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.models.model import Model
@@ -131,6 +134,31 @@ def test_counting():
     assert isinstance(model.monitor.get_examples_seen(), py_integer_types)
     assert isinstance(model.monitor.get_batches_seen(), py_integer_types)
 
+def test_large_examples():
+    BATCH_SIZE = 10000
+    num_examples = 60002994
+    NUM_FEATURES = 3
+
+    model = DummyModel(NUM_FEATURES)
+    monitor = Monitor.get_monitor(model)
+
+    monitoring_dataset = DummyDataset(num_examples = num_examples,
+            num_features = NUM_FEATURES)
+
+    monitor.add_dataset(monitoring_dataset, 'sequential', batch_size=BATCH_SIZE)
+
+    name = 'z'
+
+    monitor.add_channel(name = name,
+            ipt = model.input_space.make_theano_batch(),
+            val = 0.,
+            data_specs=(model.get_input_space(), model.get_input_source()))
+
+    try:
+        monitor()
+    except RuntimeError:
+        assert False
+
 def test_reject_empty():
 
     # Test that Monitor raises an error if asked to iterate over 0 batches
@@ -179,8 +207,7 @@ def test_prereqs():
 
     prereq_counter = sharedX(0.)
     def prereq(*data):
-        prereq_counter.set_value(
-                prereq_counter.get_value()+1.)
+        prereq_counter.set_value(prereq_counter.get_value() + 1.)
 
     name = 'num_prereq_calls'
 
@@ -212,9 +239,14 @@ def test_revisit():
 
     for mon_batch_size in xrange(BATCH_SIZE, MAX_BATCH_SIZE + 1,
             BATCH_SIZE_STRIDE):
-        for num_mon_batches in [ 1, 3, num_examples / mon_batch_size, None ]:
-            for mode in sorted(_iteration_schemes):
-
+        nums = [1, 3, int(num_examples / mon_batch_size), None]
+        
+        for mode in sorted(_iteration_schemes):
+            if mode == 'even_sequences' and nums is not None:
+                # even_sequences iterator does not support specifying a fixed number
+                # of minibatches.
+                continue
+            for num_mon_batches in nums:
                 if num_mon_batches is None and mode in ['random_uniform', 'random_slice']:
                     continue
 
@@ -241,8 +273,8 @@ def test_revisit():
                     num_mon_batches = int(np.ceil(float(num_examples) /
                                           float(mon_batch_size)))
 
-                batches = [ None ] * num_mon_batches
-                visited = [ False ] * num_mon_batches
+                batches = [None] * int(num_mon_batches)
+                visited = [False] * int(num_mon_batches)
 
                 batch_idx = shared(0)
 
@@ -271,10 +303,10 @@ def test_revisit():
                             assert not visited[idx]
                             visited[idx] = True
                             if not np.allclose(previous_batch, X):
-                                print 'Visited different data in batch',idx
-                                print previous_batch
-                                print X
-                                print 'Iteration mode', mode
+                                print('Visited different data in batch',idx)
+                                print(previous_batch)
+                                print(X)
+                                print('Iteration mode', mode)
                                 assert False
                         else:
                             batches[idx] = X
@@ -294,7 +326,7 @@ def test_revisit():
                 try:
                     monitor()
                 except RuntimeError:
-                    print 'monitor raised RuntimeError for iteration mode', mode
+                    print('monitor raised RuntimeError for iteration mode', mode)
                     raise
 
 
@@ -527,7 +559,7 @@ def test_no_data():
             ipt = model.input_space.make_theano_batch(),
             data_specs = (model.input_space, 'features'),
             val = 0.)
-    except ValueError, e:
+    except ValueError as e:
         assert exc_message(e) == _err_no_data
         return
     assert False
@@ -561,7 +593,7 @@ def test_ambig_data():
             ipt = model.input_space.make_theano_batch(),
             val = 0.,
             data_specs=(model.get_input_space(), model.get_input_source()))
-    except ValueError, e:
+    except ValueError as e:
         assert exc_message(e) == _err_ambig_data
         return
     assert False

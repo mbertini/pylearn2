@@ -1,6 +1,8 @@
 """
 Common DBM Layer classes
 """
+from __future__ import print_function
+
 __authors__ = ["Ian Goodfellow", "Vincent Dumoulin"]
 __copyright__ = "Copyright 2012-2013, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
@@ -10,20 +12,23 @@ __maintainer__ = "LISA Lab"
 import functools
 import logging
 import numpy as np
+import operator
+from theano.compat.six.moves import input, reduce, xrange
 import time
 import warnings
 
 from theano import tensor as T, function, config
 import theano
-from theano.compat import OrderedDict
 from theano.gof.op import get_debug_values
 from theano.printing import Print
 
+from pylearn2.compat import OrderedDict
 from pylearn2.expr.nnet import sigmoid_numpy
 from pylearn2.expr.probabilistic_max_pooling import max_pool_channels, max_pool_b01c, max_pool, max_pool_c01b
 from pylearn2.linear.conv2d import make_random_conv2D, make_sparse_random_conv2D
 from pylearn2.linear.conv2d_c01b import setup_detector_layer_c01b
 from pylearn2.linear.matrixmul import MatrixMul
+from pylearn2.model_extensions.norm_constraint import MaxL2FilterNorm
 from pylearn2.models import Model
 from pylearn2.models.dbm import init_sigmoid_bias_from_marginals
 from pylearn2.space import VectorSpace, CompositeSpace, Conv2DSpace, Space
@@ -261,9 +266,12 @@ class VisibleLayer(Layer):
 
     def get_total_state_space(self):
         """
-        .. todo::
+        Returns the total state of the layer.
 
-            WRITEME
+        Returns
+        -------
+        total_state : member of the input space
+            The total state of the layer.
         """
         return self.get_input_space()
 
@@ -327,9 +335,15 @@ class BinaryVector(VisibleLayer):
     bias_from_marginals : pylearn2.datasets.dataset.Dataset
         Dataset, whose marginals are used to initialize the visible biases
     center : bool
-        WRITEME
+        If True, use Gregoire Montavon's centering trick
     copies : int
-        WRITEME
+        Use this number of virtual copies of the state. All the copies
+        still share parameters. This can be useful for balancing the
+        amount of influencing two neighboring layers have on each other
+        if the layers have different numbers or different types of units.
+        Without this replication, layers with more units or units with
+        a greater dynamic range would dominate the interaction due to
+        the symmetric nature of undirected interactions.
     """
     def __init__(self,
             nvis,
@@ -337,6 +351,7 @@ class BinaryVector(VisibleLayer):
             center = False,
             copies = 1, learn_init_inpainting_state = False):
 
+        super(BinaryVector, self).__init__()
         self.__dict__.update(locals())
         del self.self
         # Don't serialize the dataset
@@ -634,23 +649,40 @@ class BinaryVectorMaxPool(HiddenLayer):
 
     Parameters
     ----------
-    detector_layer_dim : WRITEME
-    pool_size : WRITEME
-    layer_name : WRITEME
-    irange : WRITEME
-    sparse_init : WRITEME
-    sparse_stdev : WRITEME
+    detector_layer_dim : int
+        Number of units in the detector layer
+    pool_size : int
+        Number of detector units per pooling unit
+        (Pools are disjoint)
+    layer_name : str
+        Name of the layer
+    irange : float
+        If specified, initialize the weights in U(-irange, irange)
     include_prob : , optional
         Probability of including a weight element in the set of weights
         initialized to U(-irange, irange). If not included it is
         initialized to 0.
-    init_bias : WRITEME
-    W_lr_scale : WRITEME
-    b_lr_scale : WRITEME
-    center : WRITEME
+    sparse_init : int
+        If specified, initialize this many weights in each column
+        to be nonzero.
+    sparse_stdev : float
+        When using sparse_init, the non-zero weights are drawn from
+        a Gaussian distribution with mean 0 and standard deviation
+        `sparse_stdev`
+    init_bias : float or ndarray
+        Initialize the biases to this value
+    W_lr_scale : float
+        Multiply the learning rate on the weights by this number
+    b_lr_scale : float
+        Multiply the learning rate on the biases by this number
+    center : bool
+        If True, use Gregoire Montavon's centering trick
     mask_weights : WRITEME
-    max_col_norm : WRITEME
-    copies : WRITEME
+    max_col_norm : float
+        Constrain the columns of the weight matrix to have at most
+        this norm
+    copies : int
+        See BinaryVector docstring for explanation
     """
     # TODO: this layer uses (pooled, detector) as its total state,
     #       which can be confusing when listing all the states in
@@ -673,6 +705,7 @@ class BinaryVectorMaxPool(HiddenLayer):
             mask_weights = None,
             max_col_norm = None,
             copies = 1):
+        super(BinaryVectorMaxPool, self).__init__()
         self.__dict__.update(locals())
         del self.self
 
@@ -682,6 +715,9 @@ class BinaryVectorMaxPool(HiddenLayer):
             if self.pool_size != 1:
                 raise NotImplementedError()
             self.offset = sharedX(sigmoid_numpy(self.b.get_value()))
+
+        if max_col_norm is not None:
+            self.extensions.append(MaxL2FilterNorm(max_col_norm, axis=0))
 
     def get_lr_scalers(self):
         """
@@ -788,15 +824,6 @@ class BinaryVectorMaxPool(HiddenLayer):
             W ,= self.transformer.get_params()
             if W in updates:
                 updates[W] = updates[W] * self.mask
-
-        if self.max_col_norm is not None:
-            W, = self.transformer.get_params()
-            if W in updates:
-                updated_W = updates[W]
-                col_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=0))
-                desired_norms = T.clip(col_norms, 0, self.max_col_norm)
-                updates[W] = updated_W * (desired_norms / (1e-7 + col_norms))
-
 
     def get_total_state_space(self):
         """
@@ -1342,7 +1369,7 @@ class BinaryVectorMaxPool(HiddenLayer):
                 for sb in get_debug_values(state_below):
                     if sb.shape[0] != self.dbm.batch_size:
                         raise ValueError("self.dbm.batch_size is %d but got shape of %d" % (self.dbm.batch_size, sb.shape[0]))
-                    assert reduce(lambda x,y: x * y, sb.shape[1:]) == self.input_dim
+                    assert reduce(operator.mul, sb.shape[1:]) == self.input_dim
 
             state_below = self.input_space.format_as(state_below, self.desired_space)
 
@@ -1407,7 +1434,7 @@ class BinaryVectorMaxPool(HiddenLayer):
                 for sb in get_debug_values(state_below):
                     if sb.shape[0] != self.dbm.batch_size:
                         raise ValueError("self.dbm.batch_size is %d but got shape of %d" % (self.dbm.batch_size, sb.shape[0]))
-                    assert reduce(lambda x,y: x * y, sb.shape[1:]) == self.input_dim
+                    assert reduce(operator.mul, sb.shape[1:]) == self.input_dim
 
             state_below = self.input_space.format_as(state_below, self.desired_space)
 
@@ -1480,6 +1507,9 @@ class Softmax(HiddenLayer):
                  max_col_norm = None,
                  copies = 1, center = False,
                  learn_init_inpainting_state = True):
+
+        super(Softmax, self).__init__()
+
         if isinstance(W_lr_scale, str):
             W_lr_scale = float(W_lr_scale)
 
@@ -1495,19 +1525,8 @@ class Softmax(HiddenLayer):
             b = self.b.get_value()
             self.offset = sharedX(np.exp(b) / np.exp(b).sum())
 
-    @functools.wraps(Model._modify_updates)
-    def _modify_updates(self, updates):
-
-        if not hasattr(self, 'max_col_norm'):
-            self.max_col_norm = None
-
-        if self.max_col_norm is not None:
-            W = self.W
-            if W in updates:
-                updated_W = updates[W]
-                col_norms = T.sqrt(T.sum(T.sqr(updated_W), axis=0))
-                desired_norms = T.clip(col_norms, 0, self.max_col_norm)
-                updates[W] = updated_W * (desired_norms / (1e-7 + col_norms))
+        if max_col_norm is not None:
+            self.extensions.append(MaxL2FilterNorm(max_col_norm, axis=0))
 
     @functools.wraps(Model.get_lr_scalers)
     def get_lr_scalers(self):
@@ -2027,6 +2046,7 @@ class GaussianVisLayer(VisibleLayer):
             bias_from_marginals = None,
             beta_lr_scale = 'by_sharing',
             axes = ('b', 0, 1, 'c')):
+        super(type(self), self).__init__()
 
         warnings.warn("GaussianVisLayer math very faith based, need to finish working through gaussian.lyx")
 
@@ -2049,7 +2069,7 @@ class GaussianVisLayer(VisibleLayer):
             self.space = Conv2DSpace(shape=[rows,cols], num_channels=channels, axes=axes)
             # To make GaussianVisLayer compatible with any axis ordering
             self.batch_axis=list(axes).index('b')
-            self.axes_to_sum = range(len(axes))
+            self.axes_to_sum = list(range(len(axes)))
             self.axes_to_sum.remove(self.batch_axis)
         else:
             assert rows is None
@@ -2227,8 +2247,8 @@ class GaussianVisLayer(VisibleLayer):
             assert drop_mask_v.ndim in [3,4]
             for i in xrange(drop_mask.ndim):
                 if Vv.shape[i] != drop_mask_v.shape[i]:
-                    print Vv.shape
-                    print drop_mask_v.shape
+                    print(Vv.shape)
+                    print(drop_mask_v.shape)
                     assert False
         """
 
@@ -2447,9 +2467,26 @@ class GaussianVisLayer(VisibleLayer):
 
 class ConvMaxPool(HiddenLayer):
     """
-    .. todo::
+    Implements a hidden convolutional layer. The layer lives in a Conv2DSpace.
 
-        WRITEME
+    Parameters
+    ----------
+    output_channels : WRITEME
+    kernel_rows : WRITEME
+    kernel_cols : WRITEME
+    pool_rows : WRITEME
+    pool_cols : WRITEME
+    layer_name : str
+        Name of the layer
+    center : bool
+        If True, use Gregoire Montavon's centering trick
+    irange : float
+        If specified, initialize the weights in U(-irange, irange)
+    sparse_init : WRITEME
+    scale_by_sharing : WRITEME
+    init_bias : WRITEME
+    border_mode : WRITEME
+    output_axes : WRITEME
     """
 
     def __init__(self,
@@ -2466,6 +2503,7 @@ class ConvMaxPool(HiddenLayer):
             init_bias = 0.,
             border_mode = 'valid',
             output_axes = ('b', 'c', 0, 1)):
+        super(ConvMaxPool, self).__init__()
         self.__dict__.update(locals())
         del self.self
 
@@ -2824,7 +2862,7 @@ class ConvMaxPool(HiddenLayer):
             msg = layer_above.downward_message(state_above)
             try:
                 self.output_space.validate(msg)
-            except TypeError, e:
+            except TypeError as e:
                 reraise_as(TypeError(str(type(layer_above))+".downward_message gave something that was not the right type: "+str(e)))
         else:
             msg = None
@@ -3026,8 +3064,8 @@ class ConvC01B_MaxPool(HiddenLayer):
         """ Note: this resets parameters!"""
 
         setup_detector_layer_c01b(layer=self,
-                input_space=space, rng=self.dbm.rng,
-                irange=self.irange)
+                                  input_space=space,
+                                  rng=self.dbm.rng,)
 
         if not tuple(space.axes) == ('c', 0, 1, 'b'):
             raise AssertionError("You're not using c01b inputs. Ian is enforcing c01b inputs while developing his pipeline to make sure it runs at maximal speed. If you really don't want to use c01b inputs, you can remove this check and things should work. If they don't work it's only because they're not tested.")
@@ -3326,7 +3364,7 @@ class ConvC01B_MaxPool(HiddenLayer):
             msg = layer_above.downward_message(state_above)
             try:
                 self.output_space.validate(msg)
-            except TypeError, e:
+            except TypeError as e:
                 reraise_as(TypeError(str(type(layer_above))+".downward_message gave something that was not the right type: "+str(e)))
         else:
             msg = None
@@ -3521,7 +3559,7 @@ class BVMP_Gaussian(BinaryVectorMaxPool):
         W ,= self.transformer.get_params()
         W = W.get_value()
 
-        x = raw_input("multiply by beta?")
+        x = input("multiply by beta?")
         if x == 'y':
             beta = self.input_layer.beta.get_value()
             return (W.T * beta).T
@@ -3681,7 +3719,7 @@ class BVMP_Gaussian(BinaryVectorMaxPool):
                 for sb in get_debug_values(state_below):
                     if sb.shape[0] != self.dbm.batch_size:
                         raise ValueError("self.dbm.batch_size is %d but got shape of %d" % (self.dbm.batch_size, sb.shape[0]))
-                    assert reduce(lambda x,y: x * y, sb.shape[1:]) == self.input_dim
+                    assert reduce(operator.mul, sb.shape[1:]) == self.input_dim
 
             state_below = self.input_space.format_as(state_below, self.desired_space)
 
@@ -3758,7 +3796,7 @@ class BVMP_Gaussian(BinaryVectorMaxPool):
                 for sb in get_debug_values(state_below):
                     if sb.shape[0] != self.dbm.batch_size:
                         raise ValueError("self.dbm.batch_size is %d but got shape of %d" % (self.dbm.batch_size, sb.shape[0]))
-                    assert reduce(lambda x,y: x * y, sb.shape[1:]) == self.input_dim
+                    assert reduce(operator.mul, sb.shape[1:]) == self.input_dim
 
             state_below = self.input_space.format_as(state_below, self.desired_space)
 
@@ -4066,7 +4104,7 @@ class CompositeLayer(HiddenLayer):
         logger.info('Get topological weights for which layer?')
         for i, component in enumerate(self.components):
             logger.info('{0} {1}'.format(i, component.layer_name))
-        x = raw_input()
+        x = input()
         return self.components[int(x)].get_weights_topo()
 
     def get_monitoring_channels_from_state(self, state):

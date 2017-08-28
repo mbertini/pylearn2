@@ -15,6 +15,7 @@ __email__ = "pylearn-dev@googlegroups"
 
 import logging
 import numpy as np
+from theano.compat.six.moves import xrange
 import warnings
 
 from pylearn2.packaged_dependencies.theano_linear.unshared_conv.localdot import LocalDot
@@ -57,7 +58,8 @@ class Local(LinearTransform, LocalDot):
         """TODO: Local ignores partial_sum argument,
                  figure out how James' code controls it"""
 
-        logger.warning("partial_sum argument ignored")
+        if partial_sum is not None:
+            logger.warning("partial_sum argument ignored")
 
         LocalDot.__init__(self,
             filters=filters,
